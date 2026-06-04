@@ -1,0 +1,12 @@
+# macOS local metadata
+.DS_Store
+
+# Generated release/package staging directories
+/build/
+/dist/
+
+# Local Go build output from `go build -o localtun .`
+/localtun
+
+# Generated release archives
+/localtun-*.tar.gz

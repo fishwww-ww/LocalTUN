@@ -1,11 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -30,15 +29,13 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	pidFile := filepath.Join(dataDir, "localtun.pid")
-	data, err := os.ReadFile(pidFile)
+	pid, err := readPID(pidFile)
 	if err != nil {
+		if errors.Is(err, errInvalidPID) {
+			os.Remove(pidFile)
+			return fmt.Errorf("PID 文件格式错误，已清理")
+		}
 		return fmt.Errorf("未找到运行中的隧道 (PID 文件不存在)")
-	}
-
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		os.Remove(pidFile)
-		return fmt.Errorf("PID 文件格式错误，已清理")
 	}
 
 	proc, err := os.FindProcess(pid)
@@ -56,11 +53,11 @@ func runStop(cmd *cobra.Command, args []string) error {
 	for i := 0; i < 10; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
-			break
+			os.Remove(pidFile)
+			fmt.Printf("隧道已停止 (PID: %d)\n", pid)
+			return nil
 		}
 	}
 
-	os.Remove(pidFile)
-	fmt.Printf("隧道已停止 (PID: %d)\n", pid)
-	return nil
+	return fmt.Errorf("进程 %d 仍在运行，未删除 PID 文件", pid)
 }

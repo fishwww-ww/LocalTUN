@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 	"strings"
@@ -61,24 +62,26 @@ func (s *Setup) ConfigureSSHD() error {
 	}
 	s.logger.Printf("已备份 sshd_config → sshd_config.bak.%s", timestamp)
 
-	settings := map[string]string{
-		"AllowTcpForwarding": "yes",
-		"GatewayPorts":       "yes",
-		"PermitTunnel":       "yes",
+	settings := []struct {
+		key string
+		val string
+	}{
+		{"AllowTcpForwarding", "yes"},
+		{"GatewayPorts", "yes"},
+		{"PermitTunnel", "yes"},
 	}
 
-	for key, val := range settings {
-		// Uncomment and set, or append if not present
+	for _, setting := range settings {
 		cmd := fmt.Sprintf(
-			`grep -q '^\s*%s' /etc/ssh/sshd_config && `+
-				`sed -i 's/^\s*#*\s*%s\s.*/%s %s/' /etc/ssh/sshd_config || `+
+			`grep -q '^[[:space:]]*#*[[:space:]]*%s[[:space:]]' /etc/ssh/sshd_config && `+
+				`sed -i 's/^[[:space:]]*#*[[:space:]]*%s[[:space:]].*/%s %s/' /etc/ssh/sshd_config || `+
 				`echo '%s %s' >> /etc/ssh/sshd_config`,
-			key, key, key, val, key, val,
+			setting.key, setting.key, setting.key, setting.val, setting.key, setting.val,
 		)
 		if _, err := s.runCommand(cmd); err != nil {
-			return fmt.Errorf("设置 %s 失败: %w", key, err)
+			return fmt.Errorf("设置 %s 失败: %w", setting.key, err)
 		}
-		s.logger.Printf("  %s %s ✓", key, val)
+		s.logger.Printf("  %s %s ✓", setting.key, setting.val)
 	}
 
 	return nil
@@ -120,6 +123,11 @@ func (s *Setup) ConfigureBashRC() error {
 
 	proxyBlock := fmt.Sprintf(`
 # === LocalTUN Proxy Config ===
+case "$-" in
+    *i*) ;;
+    *) return 0 2>/dev/null || exit 0 ;;
+esac
+
 PROXY_SERVER="127.0.0.1"
 PROXY_PORT="%d"
 PROXY_URL="http://$PROXY_SERVER:$PROXY_PORT"
@@ -157,11 +165,8 @@ proxy_test() {
 		remotePort, remotePort, remotePort, remotePort,
 		remotePort)
 
-	escapedBlock := strings.ReplaceAll(proxyBlock, `"`, `\"`)
-	escapedBlock = strings.ReplaceAll(escapedBlock, `$`, `\$`)
-	escapedBlock = strings.ReplaceAll(escapedBlock, "`", "\\`")
-
-	appendCmd := fmt.Sprintf(`printf "%s" >> ~/.bashrc`, escapedBlock)
+	encodedBlock := base64.StdEncoding.EncodeToString([]byte(proxyBlock))
+	appendCmd := fmt.Sprintf(`printf '%%s' '%s' | base64 -d >> ~/.bashrc`, encodedBlock)
 	if _, err := s.runCommand(appendCmd); err != nil {
 		return fmt.Errorf("写入 .bashrc 失败: %w", err)
 	}

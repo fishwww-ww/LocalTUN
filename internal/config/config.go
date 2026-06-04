@@ -123,6 +123,12 @@ func (c *Config) Validate() error {
 	if c.Tunnel.LocalPort <= 0 || c.Tunnel.LocalPort > 65535 {
 		return fmt.Errorf("tunnel.local_port 必须在 1-65535 之间")
 	}
+	if c.Keepalive.Interval <= 0 {
+		return fmt.Errorf("keepalive.interval 必须大于 0")
+	}
+	if c.Keepalive.MaxCount <= 0 {
+		return fmt.Errorf("keepalive.max_count 必须大于 0")
+	}
 	return nil
 }
 

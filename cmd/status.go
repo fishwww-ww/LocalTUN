@@ -1,12 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
 
 	"github.com/spf13/cobra"
 	"localtun/internal/config"
@@ -35,8 +33,12 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	pidFile := filepath.Join(dataDir, "localtun.pid")
-	data, err := os.ReadFile(pidFile)
+	pid, err := readPID(pidFile)
 	if err != nil {
+		if errors.Is(err, errInvalidPID) {
+			fmt.Println("状态: 未运行 (PID 文件损坏)")
+			return nil
+		}
 		fmt.Println("状态: 未运行")
 		if cfg != nil {
 			printConfig(cfg)
@@ -44,14 +46,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		fmt.Println("状态: 未运行 (PID 文件损坏)")
-		return nil
-	}
-
-	proc, err := os.FindProcess(pid)
-	if err != nil || proc.Signal(syscall.Signal(0)) != nil {
+	if !processRunning(pid) {
 		fmt.Printf("状态: 未运行 (PID %d 已不存在)\n", pid)
 		os.Remove(pidFile)
 		return nil

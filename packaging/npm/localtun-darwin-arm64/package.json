@@ -1,0 +1,16 @@
+{
+  "name": "@fishwww-ww/localtun-darwin-arm64",
+  "version": "0.1.1",
+  "description": "macOS arm64 binary for @fishwww-ww/localtun",
+  "license": "MIT",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin",
+    "LICENSE"
+  ]
+}

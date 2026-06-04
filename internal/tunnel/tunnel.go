@@ -130,14 +130,28 @@ func (t *Tunnel) handleConnection(remote net.Conn) {
 
 	go func() {
 		defer wg.Done()
-		io.Copy(local, remote)
+		if _, err := io.Copy(local, remote); err != nil {
+			t.logger.Printf("远程到本地转发结束: %v", err)
+		}
+		closeWrite(local)
 	}()
 	go func() {
 		defer wg.Done()
-		io.Copy(remote, local)
+		if _, err := io.Copy(remote, local); err != nil {
+			t.logger.Printf("本地到远程转发结束: %v", err)
+		}
+		closeWrite(remote)
 	}()
 
 	wg.Wait()
+}
+
+func closeWrite(conn net.Conn) {
+	if c, ok := conn.(interface{ CloseWrite() error }); ok {
+		_ = c.CloseWrite()
+		return
+	}
+	_ = conn.Close()
 }
 
 func (t *Tunnel) Close() {

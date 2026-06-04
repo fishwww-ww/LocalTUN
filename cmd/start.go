@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -44,16 +43,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	pidFile := filepath.Join(dataDir, "localtun.pid")
+	foreground, _ := cmd.Flags().GetBool("foreground")
 
-	if isRunning(pidFile) {
+	if !foreground && isRunning(pidFile) {
 		return fmt.Errorf("隧道已在运行中 (PID 文件: %s)，请先运行 `localtun stop`", pidFile)
 	}
 
-	if daemonFlag {
-		fg, _ := cmd.Flags().GetBool("foreground")
-		if !fg {
-			return daemonize(pidFile)
-		}
+	if daemonFlag && !foreground {
+		return daemonize(pidFile)
 	}
 
 	logFile := os.Stdout
@@ -82,6 +79,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
 	go func() {
 		<-sigCh
 		logger.Println("收到停止信号，正在关闭隧道...")
@@ -114,9 +112,7 @@ func daemonize(pidFile string) error {
 		Dir:   ".",
 		Env:   os.Environ(),
 		Files: []*os.File{os.Stdin, logFile, logFile},
-		Sys: &syscall.SysProcAttr{
-			Setsid: true,
-		},
+		Sys:   daemonSysProcAttr(),
 	}
 
 	proc, err := os.StartProcess(exe, args, attr)
@@ -136,21 +132,4 @@ func daemonize(pidFile string) error {
 	fmt.Printf("日志文件: %s\n", logPath)
 	fmt.Printf("停止隧道: localtun stop\n")
 	return nil
-}
-
-func isRunning(pidFile string) bool {
-	data, err := os.ReadFile(pidFile)
-	if err != nil {
-		return false
-	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return false
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = proc.Signal(syscall.Signal(0))
-	return err == nil
 }
