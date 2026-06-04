@@ -37,12 +37,14 @@ func prompt(reader *bufio.Reader, label, defaultVal string) string {
 }
 
 func promptInt(reader *bufio.Reader, label string, defaultVal int) int {
-	s := prompt(reader, label, strconv.Itoa(defaultVal))
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return defaultVal
+	for {
+		s := prompt(reader, label, strconv.Itoa(defaultVal))
+		v, err := strconv.Atoi(s)
+		if err == nil && v > 0 && v <= 65535 {
+			return v
+		}
+		fmt.Println("  请输入 1-65535 之间的端口号")
 	}
-	return v
 }
 
 func runInit(cmd *cobra.Command, args []string) error {

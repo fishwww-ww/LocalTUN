@@ -134,7 +134,10 @@ func (c *Config) Validate() error {
 
 // ExpandKeyPath resolves ~ to home directory in the key path.
 func (c *Config) ExpandKeyPath() (string, error) {
-	p := c.Server.KeyPath
+	return expandHome(c.Server.KeyPath)
+}
+
+func expandHome(p string) (string, error) {
 	if strings.HasPrefix(p, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {

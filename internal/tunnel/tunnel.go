@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -13,6 +14,8 @@ import (
 	"localtun/internal/config"
 	"localtun/internal/sshutil"
 )
+
+var ErrRemoteListenFailed = errors.New("remote listen failed")
 
 type Tunnel struct {
 	cfg      *config.Config
@@ -86,7 +89,7 @@ func (t *Tunnel) startForwarding(ctx context.Context) error {
 
 	listener, err := client.Listen("tcp", listenAddr)
 	if err != nil {
-		return fmt.Errorf("远程端口 %d 监听失败: %w", t.cfg.Tunnel.RemotePort, err)
+		return fmt.Errorf("%w: 远程端口 %d 监听失败: %v", ErrRemoteListenFailed, t.cfg.Tunnel.RemotePort, err)
 	}
 
 	t.mu.Lock()
@@ -208,6 +211,9 @@ func (t *Tunnel) Run(ctx context.Context) error {
 
 		if err != nil {
 			t.logger.Printf("隧道断开: %v", err)
+			if errors.Is(err, ErrRemoteListenFailed) {
+				return err
+			}
 		} else {
 			t.logger.Printf("隧道断开")
 		}

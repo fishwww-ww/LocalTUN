@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -51,6 +50,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	if daemonFlag && !foreground {
 		return daemonize(pidFile)
+	}
+
+	if !daemonFlag {
+		if err := writePIDInfo(pidFile, os.Getpid()); err != nil {
+			return fmt.Errorf("写入 PID 文件失败: %w", err)
+		}
+		defer removePIDInfo(pidFile, os.Getpid())
 	}
 
 	logFile := os.Stdout
@@ -122,7 +128,7 @@ func daemonize(pidFile string) error {
 	}
 	logFile.Close()
 
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(proc.Pid)), 0644); err != nil {
+	if err := writePIDInfo(pidFile, proc.Pid); err != nil {
 		return fmt.Errorf("写入 PID 文件失败: %w", err)
 	}
 

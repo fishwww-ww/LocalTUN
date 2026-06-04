@@ -110,6 +110,8 @@ localtun setup
 - 备份并更新远端 `~/.bashrc`
 - 添加代理环境变量和 `proxy_on`、`proxy_off`、`proxy_test` 函数
 
+某些托管或容器环境不允许在实例内部重启 SSH。如果重启步骤失败，可以继续配置 `.bashrc`，然后直接测试隧道是否可用。
+
 配置完成后，请在远端重新加载 shell：
 
 ```bash
@@ -130,10 +132,10 @@ localtun start
 localtun start -d
 ```
 
-后台模式会生成：
+运行时文件：
 
-- `~/.localtun/localtun.pid`
-- `~/.localtun/localtun.log`
+- `~/.localtun/localtun.pid`：前台和后台模式都会使用，用于防止重复启动隧道进程。
+- `~/.localtun/localtun.log`：后台模式使用的日志文件。
 
 ### 4. 查看状态
 
@@ -286,7 +288,7 @@ PermitTunnel yes
 - `proxy_off`
 - `proxy_test`
 
-用户登录 shell 时，会先检测代理是否可用；如果可用则自动启用。
+需要启用代理环境时，在远端 shell 中运行 `proxy_on`。
 
 ## 常见用法
 
@@ -321,7 +323,7 @@ curl --proxy http://127.0.0.1:1080 -I -s https://www.google.com
 | 路径 | 说明 |
 |------|------|
 | `~/.localtun/config.yaml` | 主配置文件 |
-| `~/.localtun/localtun.pid` | 后台模式的 PID 文件 |
+| `~/.localtun/localtun.pid` | 用于防止重复启动隧道进程的 PID 文件 |
 | `~/.localtun/localtun.log` | 后台模式运行日志 |
 
 ## 故障排查
@@ -393,7 +395,7 @@ cat ~/.localtun/localtun.log
 
 - 当前实现使用 SSH 私钥认证，不支持交互式密码登录。
 - 远端访问依赖 HTTP 代理环境变量，因此建议本地提供 HTTP 或混合代理端口。
-- 当前 SSH 主机密钥校验较宽松，接入敏感服务器前请自行评估安全风险。
+- 当前 SSH 主机密钥校验较宽松，优先保证首次使用顺畅；接入敏感服务器前请自行评估安全风险。
 - `localtun setup` 会修改远端系统文件，生产环境建议先确认备份与回滚方案。
 
 ## 许可证

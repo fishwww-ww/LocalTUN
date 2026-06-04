@@ -1,0 +1,124 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag, Release, and Publish
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'chore(release):') }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - name: Test
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Compute next version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          current_commit_tag="$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+          if [[ -n "${current_commit_tag}" ]]; then
+            next="${current_commit_tag#v}"
+          else
+            latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+            if [[ -z "${latest_tag}" ]]; then
+              current="$(node -p "require('./packaging/npm/localtun/package.json').version")"
+            else
+              current="${latest_tag#v}"
+            fi
+
+            IFS=. read -r major minor patch <<< "${current}"
+            next="${major}.${minor}.$((patch + 1))"
+          fi
+
+          if [[ -z "${next}" ]]; then
+            current="$(node -p "require('./packaging/npm/localtun/package.json').version")"
+            next="${current}"
+          fi
+
+          echo "version=${next}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${next}" >> "${GITHUB_OUTPUT}"
+          echo "Next release: v${next}"
+
+      - name: Update npm package versions
+        run: node scripts/set-npm-version.mjs "${{ steps.version.outputs.version }}"
+
+      - name: Build npm packages
+        run: ./scripts/build-npm-packages.sh
+
+      - name: Build release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          mkdir -p dist/release
+
+          tar -C dist -czf "dist/release/localtun_${version}_darwin_arm64.tar.gz" localtun-darwin-arm64
+          tar -C dist -czf "dist/release/localtun_${version}_darwin_x64.tar.gz" localtun-darwin-x64
+          tar -C dist -czf "dist/release/localtun_${version}_linux_arm64.tar.gz" localtun-linux-arm64
+          tar -C dist -czf "dist/release/localtun_${version}_linux_x64.tar.gz" localtun-linux-x64
+          zip -j "dist/release/localtun_${version}_windows_x64.zip" dist/localtun-win32-x64.exe
+
+          (cd dist/release && sha256sum * > SHA256SUMS)
+
+      - name: Configure npm auth
+        run: npm config set //registry.npmjs.org/:_authToken "${NODE_AUTH_TOKEN}"
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish npm packages
+        run: ./scripts/publish-npm-packages.sh
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "Tag ${{ steps.version.outputs.tag }} already exists"
+          else
+            git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+            git push origin "${{ steps.version.outputs.tag }}"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            dist/release/*

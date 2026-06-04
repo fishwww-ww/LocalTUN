@@ -29,7 +29,7 @@ func runStop(cmd *cobra.Command, args []string) error {
 	}
 
 	pidFile := filepath.Join(dataDir, "localtun.pid")
-	pid, err := readPID(pidFile)
+	info, err := readPIDInfo(pidFile)
 	if err != nil {
 		if errors.Is(err, errInvalidPID) {
 			os.Remove(pidFile)
@@ -38,10 +38,15 @@ func runStop(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("未找到运行中的隧道 (PID 文件不存在)")
 	}
 
-	proc, err := os.FindProcess(pid)
+	if !processInfoRunning(info) {
+		os.Remove(pidFile)
+		return fmt.Errorf("未找到 localtun 进程 %d，已清理 PID 文件", info.PID)
+	}
+
+	proc, err := os.FindProcess(info.PID)
 	if err != nil {
 		os.Remove(pidFile)
-		return fmt.Errorf("未找到进程 %d，已清理 PID 文件", pid)
+		return fmt.Errorf("未找到进程 %d，已清理 PID 文件", info.PID)
 	}
 
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
@@ -54,10 +59,10 @@ func runStop(cmd *cobra.Command, args []string) error {
 		time.Sleep(500 * time.Millisecond)
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
 			os.Remove(pidFile)
-			fmt.Printf("隧道已停止 (PID: %d)\n", pid)
+			fmt.Printf("隧道已停止 (PID: %d)\n", info.PID)
 			return nil
 		}
 	}
 
-	return fmt.Errorf("进程 %d 仍在运行，未删除 PID 文件", pid)
+	return fmt.Errorf("进程 %d 仍在运行，未删除 PID 文件", info.PID)
 }

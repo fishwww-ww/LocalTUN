@@ -8,5 +8,8 @@
 # Local Go build output from `go build -o localtun .`
 /localtun
 
+# Local test/build cache used in sandboxed environments
+/.tmp-go-cache/
+
 # Generated release archives
 /localtun-*.tar.gz

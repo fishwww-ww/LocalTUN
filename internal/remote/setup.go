@@ -132,22 +132,11 @@ PROXY_SERVER="127.0.0.1"
 PROXY_PORT="%d"
 PROXY_URL="http://$PROXY_SERVER:$PROXY_PORT"
 
-if curl -s -o /dev/null -w "%%{http_code}" --max-time 1 -x "$PROXY_URL" https://www.google.com 2>/dev/null | grep -q "200"; then
+proxy_on() {
     export http_proxy="$PROXY_URL"
     export https_proxy="$PROXY_URL"
     export HTTP_PROXY="$PROXY_URL"
     export HTTPS_PROXY="$PROXY_URL"
-    echo "✓ 代理可用，已启用 (端口 %d)"
-else
-    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
-    echo "✗ 代理不可用，直连模式"
-fi
-
-proxy_on() {
-    export http_proxy="http://127.0.0.1:%d"
-    export https_proxy="http://127.0.0.1:%d"
-    export HTTP_PROXY="http://127.0.0.1:%d"
-    export HTTPS_PROXY="http://127.0.0.1:%d"
     echo "✓ 代理已启用"
 }
 
@@ -158,12 +147,10 @@ proxy_off() {
 
 proxy_test() {
     echo "测试代理..."
-    curl --proxy http://127.0.0.1:%d -I -s https://www.google.com
+    curl --proxy "$PROXY_URL" -I -s --max-time 5 https://www.google.com
 }
 # === End LocalTUN ===
-`, remotePort, remotePort,
-		remotePort, remotePort, remotePort, remotePort,
-		remotePort)
+`, remotePort)
 
 	encodedBlock := base64.StdEncoding.EncodeToString([]byte(proxyBlock))
 	appendCmd := fmt.Sprintf(`printf '%%s' '%s' | base64 -d >> ~/.bashrc`, encodedBlock)
@@ -173,7 +160,7 @@ proxy_test() {
 
 	s.logger.Println(".bashrc 配置写入成功 ✓")
 	s.logger.Println("  已添加: proxy_on / proxy_off / proxy_test 函数")
-	s.logger.Println("  已添加: 登录时自动检测代理可用性")
+	s.logger.Println("  提示: 重新登录后运行 proxy_on 可启用代理")
 	return nil
 }
 

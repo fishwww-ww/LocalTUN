@@ -33,7 +33,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	pidFile := filepath.Join(dataDir, "localtun.pid")
-	pid, err := readPID(pidFile)
+	info, err := readPIDInfo(pidFile)
 	if err != nil {
 		if errors.Is(err, errInvalidPID) {
 			fmt.Println("状态: 未运行 (PID 文件损坏)")
@@ -46,13 +46,13 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if !processRunning(pid) {
-		fmt.Printf("状态: 未运行 (PID %d 已不存在)\n", pid)
+	if !processInfoRunning(info) {
+		fmt.Printf("状态: 未运行 (PID %d 已不存在或不是 localtun)\n", info.PID)
 		os.Remove(pidFile)
 		return nil
 	}
 
-	fmt.Printf("状态: 运行中 (PID: %d)\n", pid)
+	fmt.Printf("状态: 运行中 (PID: %d)\n", info.PID)
 	if cfg != nil {
 		printConfig(cfg)
 	}

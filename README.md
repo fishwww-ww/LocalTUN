@@ -110,6 +110,8 @@ This command connects to the server over SSH and, with confirmation prompts, can
 - back up and update remote `~/.bashrc`
 - add proxy environment variables and helper functions: `proxy_on`, `proxy_off`, `proxy_test`
 
+Some managed or container-based providers do not allow restarting SSH from inside the instance. If the restart step fails, you can continue the `.bashrc` setup and then test the tunnel directly.
+
 After setup, reload the shell on the remote server:
 
 ```bash
@@ -130,10 +132,10 @@ Daemon mode:
 localtun start -d
 ```
 
-Background mode creates:
+Runtime files:
 
-- `~/.localtun/localtun.pid`
-- `~/.localtun/localtun.log`
+- `~/.localtun/localtun.pid` prevents duplicate tunnel processes in both foreground and daemon modes.
+- `~/.localtun/localtun.log` is used in daemon mode.
 
 ### 4. Check status
 
@@ -286,7 +288,7 @@ It injects a `LocalTUN`-managed proxy block that includes:
 - `proxy_off`
 - `proxy_test`
 
-On login, the shell checks whether the proxy is reachable and enables it automatically if available.
+Run `proxy_on` in the remote shell when you want to enable the proxy environment.
 
 ## Common Usage
 
@@ -321,7 +323,7 @@ curl --proxy http://127.0.0.1:1080 -I -s https://www.google.com
 | Path | Description |
 |------|------|
 | `~/.localtun/config.yaml` | Main config file |
-| `~/.localtun/localtun.pid` | PID file used in daemon mode |
+| `~/.localtun/localtun.pid` | PID file used to prevent duplicate tunnel processes |
 | `~/.localtun/localtun.log` | Runtime log file used in daemon mode |
 
 ## Troubleshooting
@@ -393,7 +395,7 @@ You will usually see whether:
 
 - The current implementation uses SSH private key authentication and does not support interactive password login.
 - The remote environment is driven by HTTP proxy environment variables, so a local HTTP or mixed proxy port is recommended.
-- SSH host key verification is currently permissive, so assess the security implications before using this against sensitive servers.
+- SSH host key verification is permissive for a smoother first-run experience, so assess the security implications before using this against sensitive servers.
 - `localtun setup` modifies remote system files. In production environments, review backup and rollback procedures first.
 
 ## License

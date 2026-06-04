@@ -58,7 +58,11 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 		if confirm("是否重启 sshd 使配置生效?") {
 			if err := s.RestartSSHD(); err != nil {
-				return fmt.Errorf("重启 sshd 失败: %w", err)
+				fmt.Printf("重启 sshd 失败: %v\n", err)
+				fmt.Println("提示: 某些云容器或托管环境不允许重启 SSH 服务，可先继续后续配置并直接测试隧道。")
+				if !confirm("是否继续配置 .bashrc?") {
+					return nil
+				}
 			}
 		}
 	}

@@ -6,6 +6,17 @@ NPM_BUILD_DIR="${ROOT_DIR}/build/npm"
 
 publish_package() {
   local package_dir="$1"
+  local package_name
+  local version
+
+  package_name="$(node -p "require('${package_dir}/package.json').name")"
+  version="$(node -p "require('${package_dir}/package.json').version")"
+
+  if npm view "${package_name}@${version}" version >/dev/null 2>&1; then
+    echo "==> ${package_name}@${version} already exists, skipping"
+    return
+  fi
+
   echo "==> publishing ${package_dir}"
   (
     cd "${package_dir}"
