@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"localtun/internal/config"
+	"localtun/internal/console"
 )
 
 var stopCmd = &cobra.Command{
@@ -23,6 +24,7 @@ func init() {
 }
 
 func runStop(cmd *cobra.Command, args []string) error {
+	ui := console.ForStderr()
 	dataDir, err := config.DataDir()
 	if err != nil {
 		return err
@@ -33,25 +35,25 @@ func runStop(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if errors.Is(err, errInvalidPID) {
 			os.Remove(pidFile)
-			return fmt.Errorf("PID 文件格式错误，已清理")
+			return fmt.Errorf("%s", ui.Warning("PID 文件格式错误，已清理"))
 		}
-		return fmt.Errorf("未找到运行中的隧道 (PID 文件不存在)")
+		return fmt.Errorf("%s %s", ui.Warning("未找到运行中的隧道"), ui.Muted("(PID 文件不存在)"))
 	}
 
 	if !processInfoRunning(info) {
 		os.Remove(pidFile)
-		return fmt.Errorf("未找到 localtun 进程 %d，已清理 PID 文件", info.PID)
+		return fmt.Errorf("%s %s，已清理 PID 文件", ui.Warning("未找到 localtun 进程"), ui.Accent(fmt.Sprint(info.PID)))
 	}
 
 	proc, err := os.FindProcess(info.PID)
 	if err != nil {
 		os.Remove(pidFile)
-		return fmt.Errorf("未找到进程 %d，已清理 PID 文件", info.PID)
+		return fmt.Errorf("%s %s，已清理 PID 文件", ui.Warning("未找到进程"), ui.Accent(fmt.Sprint(info.PID)))
 	}
 
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
 		os.Remove(pidFile)
-		return fmt.Errorf("发送停止信号失败 (进程可能已退出): %w", err)
+		return fmt.Errorf("%s %s: %w", ui.Error("发送停止信号失败"), ui.Muted("(进程可能已退出)"), err)
 	}
 
 	// Wait for process to exit
@@ -59,10 +61,11 @@ func runStop(cmd *cobra.Command, args []string) error {
 		time.Sleep(500 * time.Millisecond)
 		if err := proc.Signal(syscall.Signal(0)); err != nil {
 			os.Remove(pidFile)
-			fmt.Printf("隧道已停止 (PID: %d)\n", info.PID)
+			out := console.ForStdout()
+			fmt.Printf("%s 隧道已停止 (PID: %s)\n", out.SuccessMark(), out.Accent(fmt.Sprint(info.PID)))
 			return nil
 		}
 	}
 
-	return fmt.Errorf("进程 %d 仍在运行，未删除 PID 文件", info.PID)
+	return fmt.Errorf("进程 %s 仍在运行，未删除 PID 文件", ui.Accent(fmt.Sprint(info.PID)))
 }

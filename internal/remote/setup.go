@@ -18,6 +18,13 @@ type Setup struct {
 	logger *log.Logger
 }
 
+type DiagnosticResult struct {
+	Name   string
+	OK     bool
+	Detail string
+	Hint   string
+}
+
 func NewSetup(cfg *config.Config, logger *log.Logger) *Setup {
 	return &Setup{cfg: cfg, logger: logger}
 }
@@ -189,4 +196,105 @@ func (s *Setup) RunTest() (string, error) {
 	}
 
 	return strings.Join(results, "\n"), nil
+}
+
+func (s *Setup) RunDiagnostics() []DiagnosticResult {
+	results := []DiagnosticResult{
+		{
+			Name:   "SSH 连接",
+			OK:     s.client != nil,
+			Detail: fmt.Sprintf("%s@%s:%d", s.cfg.Server.User, s.cfg.Server.Host, s.cfg.Server.Port),
+		},
+	}
+
+	if s.client == nil {
+		results[0].Hint = "SSH 未连接，无法继续远端诊断。"
+		return results
+	}
+
+	if out, err := s.runCommand("command -v curl"); err != nil || strings.TrimSpace(out) == "" {
+		results = append(results, DiagnosticResult{
+			Name:   "远端 curl",
+			OK:     false,
+			Detail: strings.TrimSpace(out),
+			Hint:   "请在远端安装 curl，或手动使用其它工具测试代理端口。",
+		})
+		return results
+	}
+
+	results = append(results, DiagnosticResult{
+		Name:   "远端 curl",
+		OK:     true,
+		Detail: "curl 可用",
+	})
+
+	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Tunnel.RemotePort)
+	proxyProbeCmd := fmt.Sprintf("curl --proxy %s -I -sS --max-time 5 https://www.baidu.com", proxyURL)
+	out, err := s.runCommand(proxyProbeCmd)
+	if err != nil {
+		results = append(results, DiagnosticResult{
+			Name:   "远端代理端口",
+			OK:     false,
+			Detail: trimDiagnosticOutput(out),
+			Hint:   fmt.Sprintf("远端 127.0.0.1:%d 暂时无法作为代理使用。请确认 `localtun start` 正在运行，并检查本地代理端口是否可连接。", s.cfg.Tunnel.RemotePort),
+		})
+		return results
+	}
+
+	results = append(results, DiagnosticResult{
+		Name:   "远端代理端口",
+		OK:     true,
+		Detail: firstNonEmptyLine(out),
+	})
+
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{"国内站点 baidu.com", "https://www.baidu.com"},
+		{"国外站点 google.com", "https://www.google.com"},
+	}
+
+	for _, test := range tests {
+		cmd := fmt.Sprintf("curl --proxy %s -I -sS --max-time 8 %s", proxyURL, test.url)
+		out, err := s.runCommand(cmd)
+		if err != nil {
+			results = append(results, DiagnosticResult{
+				Name:   test.name,
+				OK:     false,
+				Detail: trimDiagnosticOutput(out),
+				Hint:   "代理链路可达但目标请求失败，请检查本地代理规则、节点可用性或远端 DNS/网络限制。",
+			})
+			continue
+		}
+		results = append(results, DiagnosticResult{
+			Name:   test.name,
+			OK:     true,
+			Detail: firstNonEmptyLine(out),
+		})
+	}
+
+	return results
+}
+
+func firstNonEmptyLine(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return "无输出"
+}
+
+func trimDiagnosticOutput(out string) string {
+	out = strings.TrimSpace(out)
+	if out == "" {
+		return "无输出"
+	}
+	lines := strings.Split(out, "\n")
+	if len(lines) > 3 {
+		lines = lines[:3]
+	}
+	return strings.Join(lines, " | ")
 }

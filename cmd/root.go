@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"localtun/internal/console"
 )
 
 var cfgFile string
@@ -19,7 +20,7 @@ var rootCmd = &cobra.Command{
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, console.ForStderr().Error("错误:"), err)
 		os.Exit(1)
 	}
 }

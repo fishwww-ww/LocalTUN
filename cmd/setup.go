@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"localtun/internal/config"
+	"localtun/internal/console"
 	"localtun/internal/remote"
 )
 
@@ -24,8 +25,9 @@ func init() {
 }
 
 func confirm(prompt string) bool {
+	ui := console.ForStdout()
 	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("%s [y/N]: ", prompt)
+	fmt.Printf("%s %s: ", prompt, ui.Muted("[y/N]"))
 	input, _ := reader.ReadString('\n')
 	input = strings.TrimSpace(strings.ToLower(input))
 	return input == "y" || input == "yes"
@@ -37,7 +39,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logger := log.New(os.Stdout, "[setup] ", log.LstdFlags)
+	ui := console.ForStdout()
+	logger := log.New(os.Stdout, ui.Prefix("setup"), log.LstdFlags)
 
 	s := remote.NewSetup(cfg, logger)
 	if err := s.Connect(); err != nil {
@@ -46,8 +49,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	defer s.Close()
 
 	fmt.Println()
-	fmt.Printf("目标服务器: %s@%s:%d\n", cfg.Server.User, cfg.Server.Host, cfg.Server.Port)
-	fmt.Printf("隧道端口:   远程 :%d → 本地 :%d\n", cfg.Tunnel.RemotePort, cfg.Tunnel.LocalPort)
+	fmt.Printf("%s %s@%s:%s\n", ui.Label("目标服务器:"), ui.Info(cfg.Server.User), ui.Accent(cfg.Server.Host), ui.Accent(fmt.Sprint(cfg.Server.Port)))
+	fmt.Printf("%s   远程 %s → 本地 %s\n", ui.Label("隧道端口:"), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.LocalPort)))
 	fmt.Println()
 
 	if confirm("是否配置 sshd_config (AllowTcpForwarding, GatewayPorts, PermitTunnel)?") {
@@ -58,8 +61,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 		if confirm("是否重启 sshd 使配置生效?") {
 			if err := s.RestartSSHD(); err != nil {
-				fmt.Printf("重启 sshd 失败: %v\n", err)
-				fmt.Println("提示: 某些云容器或托管环境不允许重启 SSH 服务，可先继续后续配置并直接测试隧道。")
+				fmt.Printf("%s %v\n", ui.Error("重启 sshd 失败:"), err)
+				fmt.Printf("%s 某些云容器或托管环境不允许重启 SSH 服务，可先继续后续配置并直接测试隧道。\n", ui.Warning("提示:"))
 				if !confirm("是否继续配置 .bashrc?") {
 					return nil
 				}
@@ -76,8 +79,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Println("远程服务器配置完成!")
-	fmt.Println("提示: 使用 `localtun start` 启动隧道后，在服务器上运行 `source ~/.bashrc` 或重新登录以激活代理配置。")
+	fmt.Printf("%s 远程服务器配置完成!\n", ui.SuccessMark())
+	fmt.Printf("%s 使用 %s 启动隧道后，在服务器上运行 %s 或重新登录以激活代理配置。\n", ui.Warning("提示:"), ui.Info("`localtun start`"), ui.Info("`source ~/.bashrc`"))
 
 	return nil
 }

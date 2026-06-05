@@ -2,15 +2,19 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"localtun/internal/config"
+	"localtun/internal/console"
 	"localtun/internal/tunnel"
 )
 
@@ -48,6 +52,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("隧道已在运行中 (PID 文件: %s)，请先运行 `localtun stop`", pidFile)
 	}
 
+	if err := checkLocalProxyPort(cfg); err != nil {
+		return err
+	}
+
 	if daemonFlag && !foreground {
 		return daemonize(pidFile)
 	}
@@ -72,11 +80,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 		logFile = lf
 	}
 
-	logger := log.New(logFile, "[tunnel] ", log.LstdFlags)
+	logStyle := console.Plain()
+	if !daemonFlag {
+		logStyle = console.ForStdout()
+	}
+	logger := log.New(logFile, logStyle.Prefix("tunnel"), log.LstdFlags)
 
 	if !daemonFlag {
-		fmt.Printf("隧道配置: %s:%d → 本地 :%d\n", cfg.Server.Host, cfg.Tunnel.RemotePort, cfg.Tunnel.LocalPort)
-		fmt.Println("按 Ctrl+C 停止隧道")
+		ui := console.ForStdout()
+		fmt.Printf("%s %s:%s → 本地 %s\n", ui.Label("隧道配置:"), ui.Accent(cfg.Server.Host), ui.Accent(fmt.Sprint(cfg.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.LocalPort)))
+		fmt.Println(ui.Muted("按 Ctrl+C 停止隧道"))
 		fmt.Println()
 	}
 
@@ -93,7 +106,69 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}()
 
 	t := tunnel.New(cfg, logger)
-	return t.Run(ctx)
+	if err := t.Run(ctx); err != nil {
+		return explainStartError(err, cfg)
+	}
+	return nil
+}
+
+func checkLocalProxyPort(cfg *config.Config) error {
+	localAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Tunnel.LocalPort)
+	conn, err := net.DialTimeout("tcp", localAddr, 2*time.Second)
+	if err == nil {
+		conn.Close()
+		return nil
+	}
+
+	return fmt.Errorf(
+		"%s: %s\n\n"+
+			"请先确认本地代理客户端已启动，并且 HTTP 或 mixed 代理端口是 %d。\n"+
+			"常见检查:\n"+
+			"  1. Clash/Mihomo/Surge/V2Ray 是否正在运行\n"+
+			"  2. 配置里的 tunnel.local_port 是否写对\n"+
+			"  3. 本机是否允许连接 127.0.0.1:%d\n\n"+
+			"原始错误: %v",
+		console.ForStderr().Error("本地代理端口不可连接"),
+		console.ForStderr().Accent(localAddr),
+		cfg.Tunnel.LocalPort,
+		cfg.Tunnel.LocalPort,
+		err,
+	)
+}
+
+func explainStartError(err error, cfg *config.Config) error {
+	ui := console.ForStderr()
+	if errors.Is(err, tunnel.ErrRemoteListenFailed) {
+		return fmt.Errorf(
+			"%w\n\n"+
+				"%s %s 监听失败，隧道没有建立成功。\n"+
+				"建议按顺序检查:\n"+
+				"  1. 先运行 `localtun setup`，确保远端开启 AllowTcpForwarding 和 GatewayPorts\n"+
+				"  2. 登录远端执行 `ss -lntp | grep :%d`，确认端口没有被占用\n"+
+				"  3. 如果云厂商有安全组/防火墙，请放行 TCP :%d\n"+
+				"  4. 如果刚改过 sshd_config，请重启 sshd 或重新连接后再试",
+			err,
+			ui.Error("远程端口"),
+			ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.RemotePort)),
+			cfg.Tunnel.RemotePort,
+			cfg.Tunnel.RemotePort,
+		)
+	}
+
+	return fmt.Errorf(
+		"%w\n\n"+
+			"%s。建议检查:\n"+
+			"  1. SSH 密钥是否可用: %s\n"+
+			"  2. 是否能手动 SSH 登录: ssh -i %s -p %d %s@%s\n"+
+			"  3. 远端网络和本地代理是否都已就绪",
+		err,
+		ui.Error("隧道启动失败"),
+		ui.Accent(cfg.Server.KeyPath),
+		ui.Accent(cfg.Server.KeyPath),
+		cfg.Server.Port,
+		cfg.Server.User,
+		ui.Accent(cfg.Server.Host),
+	)
 }
 
 func daemonize(pidFile string) error {
@@ -134,8 +209,9 @@ func daemonize(pidFile string) error {
 
 	proc.Release()
 
-	fmt.Printf("隧道已在后台启动 (PID: %d)\n", proc.Pid)
-	fmt.Printf("日志文件: %s\n", logPath)
-	fmt.Printf("停止隧道: localtun stop\n")
+	ui := console.ForStdout()
+	fmt.Printf("%s 隧道已在后台启动 (PID: %s)\n", ui.SuccessMark(), ui.Accent(fmt.Sprint(proc.Pid)))
+	fmt.Printf("%s %s\n", ui.Label("日志文件:"), ui.Accent(logPath))
+	fmt.Printf("%s %s\n", ui.Label("停止隧道:"), ui.Info("localtun stop"))
 	return nil
 }

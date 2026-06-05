@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"localtun/internal/config"
+	"localtun/internal/console"
 	"localtun/internal/remote"
 )
 
@@ -27,7 +28,8 @@ func runTest(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	logger := log.New(os.Stdout, "[test] ", log.LstdFlags)
+	ui := console.ForStdout()
+	logger := log.New(os.Stdout, ui.Prefix("test"), log.LstdFlags)
 
 	s := remote.NewSetup(cfg, logger)
 	if err := s.Connect(); err != nil {
@@ -36,15 +38,27 @@ func runTest(cmd *cobra.Command, args []string) error {
 	defer s.Close()
 
 	fmt.Println()
-	fmt.Printf("测试代理: 远程 %s:%d\n", cfg.Server.Host, cfg.Tunnel.RemotePort)
+	fmt.Printf("%s 远程 %s:%s\n", ui.Label("测试代理:"), ui.Accent(cfg.Server.Host), ui.Accent(fmt.Sprint(cfg.Tunnel.RemotePort)))
 	fmt.Println()
 
-	results, err := s.RunTest()
-	if err != nil {
-		return fmt.Errorf("测试执行失败: %w", err)
+	results := s.RunDiagnostics()
+
+	fmt.Println(ui.Label("诊断结果:"))
+	allOK := true
+	for _, result := range results {
+		mark := ui.SuccessMark()
+		if !result.OK {
+			mark = ui.ErrorMark()
+			allOK = false
+		}
+		fmt.Printf("  %s %s: %s\n", mark, ui.Label(result.Name), result.Detail)
+		if result.Hint != "" {
+			fmt.Printf("    %s %s\n", ui.Warning("提示:"), result.Hint)
+		}
 	}
 
-	fmt.Println("测试结果:")
-	fmt.Println(results)
+	if !allOK {
+		return fmt.Errorf("%s", console.ForStderr().Error("代理连通性测试未通过"))
+	}
 	return nil
 }
