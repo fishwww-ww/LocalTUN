@@ -66,7 +66,10 @@ func runSetupProfile(profile selectedProfile, ui console.Styler, logger *log.Log
 	fmt.Println()
 	fmt.Printf("%s %s\n", ui.Label("服务器名称:"), ui.Info(profile.Name))
 	fmt.Printf("%s %s@%s:%s\n", ui.Label("目标服务器:"), ui.Info(profile.Runtime.Server.User), ui.Accent(profile.Runtime.Server.Host), ui.Accent(fmt.Sprint(profile.Runtime.Server.Port)))
-	fmt.Printf("%s   远程 %s → 本地 %s\n", ui.Label("隧道端口:"), ui.Accent(fmt.Sprintf(":%d", profile.Runtime.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", profile.Runtime.Tunnel.LocalPort)))
+	for _, tunnelName := range sortedTunnelNames(profile.Runtime.Tunnels) {
+		tunnelCfg := profile.Runtime.Tunnels[tunnelName]
+		fmt.Printf("%s   %s 远程 %s:%s → 本地 %s\n", ui.Label("隧道端口:"), ui.Info(tunnelName), ui.Accent(tunnelCfg.RemoteBind), ui.Accent(fmt.Sprint(tunnelCfg.RemotePort)), ui.Accent(fmt.Sprintf(":%d", tunnelCfg.LocalPort)))
+	}
 	fmt.Println()
 
 	if confirm("是否配置 sshd_config (AllowTcpForwarding, GatewayPorts, PermitTunnel)?") {

@@ -109,7 +109,8 @@ func (s *Setup) RestartSSHD() error {
 func (s *Setup) ConfigureBashRC() error {
 	s.logger.Println("=== 配置 .bashrc ===")
 
-	remotePort := s.cfg.Tunnel.RemotePort
+	_, proxyTunnel := s.cfg.PrimaryTunnel()
+	remotePort := proxyTunnel.RemotePort
 
 	out, _ := s.runCommand("cat ~/.bashrc")
 	if strings.Contains(out, "# === LocalTUN Proxy Config ===") {
@@ -173,7 +174,8 @@ proxy_test() {
 
 // RunTest executes proxy test commands on the remote server.
 func (s *Setup) RunTest() (string, error) {
-	remotePort := s.cfg.Tunnel.RemotePort
+	_, proxyTunnel := s.cfg.PrimaryTunnel()
+	remotePort := proxyTunnel.RemotePort
 
 	tests := []struct {
 		name string
@@ -228,7 +230,8 @@ func (s *Setup) RunDiagnostics() []DiagnosticResult {
 		Detail: "curl 可用",
 	})
 
-	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Tunnel.RemotePort)
+	_, proxyTunnel := s.cfg.PrimaryTunnel()
+	proxyURL := fmt.Sprintf("http://127.0.0.1:%d", proxyTunnel.RemotePort)
 	proxyProbeCmd := fmt.Sprintf("curl --proxy %s -I -sS --max-time 5 https://www.baidu.com", proxyURL)
 	out, err := s.runCommand(proxyProbeCmd)
 	if err != nil {
@@ -236,7 +239,7 @@ func (s *Setup) RunDiagnostics() []DiagnosticResult {
 			Name:   "远端代理端口",
 			OK:     false,
 			Detail: trimDiagnosticOutput(out),
-			Hint:   fmt.Sprintf("远端 127.0.0.1:%d 暂时无法作为代理使用。请确认 `localtun start` 正在运行，并检查本地代理端口是否可连接。", s.cfg.Tunnel.RemotePort),
+			Hint:   fmt.Sprintf("远端 127.0.0.1:%d 暂时无法作为代理使用。请确认 `localtun start` 正在运行，并检查本地代理端口是否可连接。", proxyTunnel.RemotePort),
 		})
 		return results
 	}

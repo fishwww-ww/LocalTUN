@@ -62,7 +62,8 @@ func runTestProfile(profile selectedProfile, ui console.Styler, logger *log.Logg
 
 	fmt.Println()
 	fmt.Printf("%s %s\n", ui.Label("服务器名称:"), ui.Info(profile.Name))
-	fmt.Printf("%s 远程 %s:%s\n", ui.Label("测试代理:"), ui.Accent(profile.Runtime.Server.Host), ui.Accent(fmt.Sprint(profile.Runtime.Tunnel.RemotePort)))
+	tunnelName, proxyTunnel := profile.Runtime.PrimaryTunnel()
+	fmt.Printf("%s %s 远程 %s:%s\n", ui.Label("测试代理:"), ui.Info(tunnelName), ui.Accent(profile.Runtime.Server.Host), ui.Accent(fmt.Sprint(proxyTunnel.RemotePort)))
 	fmt.Println()
 
 	results := s.RunDiagnostics()

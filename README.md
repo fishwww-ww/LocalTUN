@@ -84,8 +84,10 @@ You will be prompted for:
 - SSH username
 - SSH port
 - SSH private key path
-- Remote proxy port
-- Local proxy port
+- One or more tunnel names
+- Remote listen address
+- Remote port
+- Local port
 
 The default config path is:
 
@@ -110,6 +112,8 @@ This command connects to the server over SSH and, with confirmation prompts, can
 - optionally restart `sshd` or `ssh`
 - back up and update remote `~/.bashrc`
 - add proxy environment variables and helper functions: `proxy_on`, `proxy_off`, `proxy_test`
+
+When multiple tunnels are configured, `setup` and `test` use the tunnel named `proxy`; if it does not exist, they use the first tunnel by name.
 
 Some managed or container-based providers do not allow restarting SSH from inside the instance. If the restart step fails, you can continue the `.bashrc` setup and then test the tunnel directly.
 
@@ -193,15 +197,25 @@ servers:
     port: 22
     user: root
     key_path: ~/.ssh/id_rsa
-    remote_port: 1080
-    local_port: 7897
+    tunnels:
+      proxy:
+        remote_bind: 0.0.0.0
+        remote_port: 1080
+        local_port: 7897
+      dashboard:
+        remote_bind: 127.0.0.1
+        remote_port: 9090
+        local_port: 9090
   east:
     host: example.com
     port: 22
     user: ubuntu
     key_path: ~/.ssh/id_ed25519
-    remote_port: 1080
-    local_port: 7897
+    tunnels:
+      proxy:
+        remote_bind: 0.0.0.0
+        remote_port: 1080
+        local_port: 7897
 
 keepalive:
   interval: 30
@@ -216,8 +230,9 @@ Field reference:
 | `servers.<name>.port` | SSH port, default `22` |
 | `servers.<name>.user` | SSH login user, default `root` |
 | `servers.<name>.key_path` | SSH private key path, supports `~/` |
-| `servers.<name>.remote_port` | Proxy port exposed on the remote server, default `1080` |
-| `servers.<name>.local_port` | Local proxy port, default `7897` |
+| `servers.<name>.tunnels.<tunnel>.remote_bind` | Remote listen address, default `0.0.0.0`; use `127.0.0.1` for remote-only access |
+| `servers.<name>.tunnels.<tunnel>.remote_port` | Port exposed on the remote server, default `1080` |
+| `servers.<name>.tunnels.<tunnel>.local_port` | Local port forwarded to, default `7897` |
 | `keepalive.interval` | Keepalive interval in seconds, default `30` |
 | `keepalive.max_count` | Max keepalive failures before reconnect, default `3` |
 

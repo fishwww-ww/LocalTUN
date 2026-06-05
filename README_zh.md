@@ -84,8 +84,10 @@ localtun init
 - SSH 用户名
 - SSH 端口
 - SSH 私钥路径
-- 远程代理端口
-- 本地代理端口
+- 一个或多个隧道名称
+- 远端监听地址
+- 远端端口
+- 本地端口
 
 默认配置文件路径为：
 
@@ -110,6 +112,8 @@ localtun setup
 - 可选重启 `sshd` 或 `ssh`
 - 备份并更新远端 `~/.bashrc`
 - 添加代理环境变量和 `proxy_on`、`proxy_off`、`proxy_test` 函数
+
+配置多条隧道时，`setup` 和 `test` 会优先使用名为 `proxy` 的隧道；如果不存在，则使用按名称排序后的第一条隧道。
 
 某些托管或容器环境不允许在实例内部重启 SSH。如果重启步骤失败，可以继续配置 `.bashrc`，然后直接测试隧道是否可用。
 
@@ -193,15 +197,25 @@ servers:
     port: 22
     user: root
     key_path: ~/.ssh/id_rsa
-    remote_port: 1080
-    local_port: 7897
+    tunnels:
+      proxy:
+        remote_bind: 0.0.0.0
+        remote_port: 1080
+        local_port: 7897
+      dashboard:
+        remote_bind: 127.0.0.1
+        remote_port: 9090
+        local_port: 9090
   east:
     host: example.com
     port: 22
     user: ubuntu
     key_path: ~/.ssh/id_ed25519
-    remote_port: 1080
-    local_port: 7897
+    tunnels:
+      proxy:
+        remote_bind: 0.0.0.0
+        remote_port: 1080
+        local_port: 7897
 
 keepalive:
   interval: 30
@@ -216,8 +230,9 @@ keepalive:
 | `servers.<name>.port` | SSH 端口，默认 `22` |
 | `servers.<name>.user` | SSH 登录用户名，默认 `root` |
 | `servers.<name>.key_path` | SSH 私钥路径，支持 `~/` |
-| `servers.<name>.remote_port` | 远端暴露的代理端口，默认 `1080` |
-| `servers.<name>.local_port` | 本地代理端口，默认 `7897` |
+| `servers.<name>.tunnels.<tunnel>.remote_bind` | 远端监听地址，默认 `0.0.0.0`；只允许远端本机访问可设为 `127.0.0.1` |
+| `servers.<name>.tunnels.<tunnel>.remote_port` | 远端暴露端口，默认 `1080` |
+| `servers.<name>.tunnels.<tunnel>.local_port` | 转发到的本地端口，默认 `7897` |
 | `keepalive.interval` | keepalive 间隔秒数，默认 `30` |
 | `keepalive.max_count` | keepalive 最大失败次数，默认 `3` |
 

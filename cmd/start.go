@@ -61,7 +61,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	for _, profile := range profiles {
-		if err := checkLocalProxyPort(profile.Runtime); err != nil {
+		if err := checkLocalProxyPorts(profile.Runtime); err != nil {
 			return fmt.Errorf("[%s] %w", profile.Name, err)
 		}
 	}
@@ -130,7 +130,11 @@ func runStart(cmd *cobra.Command, args []string) error {
 		ui := console.ForStdout()
 		fmt.Println(ui.Label("隧道配置:"))
 		for _, profile := range profiles {
-			fmt.Printf("  %s %s:%s → 本地 %s\n", ui.Info(profile.Name), ui.Accent(profile.Runtime.Server.Host), ui.Accent(fmt.Sprint(profile.Runtime.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", profile.Runtime.Tunnel.LocalPort)))
+			fmt.Printf("  %s %s@%s:%s\n", ui.Info(profile.Name), ui.Info(profile.Runtime.Server.User), ui.Accent(profile.Runtime.Server.Host), ui.Accent(fmt.Sprint(profile.Runtime.Server.Port)))
+			for _, tunnelName := range sortedTunnelNames(profile.Runtime.Tunnels) {
+				tunnelCfg := profile.Runtime.Tunnels[tunnelName]
+				fmt.Printf("    %s 远程 %s:%s → 本地 %s\n", ui.Info(tunnelName), ui.Accent(tunnelCfg.RemoteBind), ui.Accent(fmt.Sprint(tunnelCfg.RemotePort)), ui.Accent(fmt.Sprintf(":%d", tunnelCfg.LocalPort)))
+			}
 		}
 		fmt.Println(ui.Muted("按 Ctrl+C 停止隧道"))
 		fmt.Println()
@@ -151,28 +155,33 @@ func runStart(cmd *cobra.Command, args []string) error {
 	return runProfiles(ctx, profiles, logger)
 }
 
-func checkLocalProxyPort(cfg *config.RuntimeConfig) error {
-	localAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Tunnel.LocalPort)
-	conn, err := net.DialTimeout("tcp", localAddr, 2*time.Second)
-	if err == nil {
-		conn.Close()
-		return nil
-	}
+func checkLocalProxyPorts(cfg *config.RuntimeConfig) error {
+	for _, tunnelName := range sortedTunnelNames(cfg.Tunnels) {
+		tunnelCfg := cfg.Tunnels[tunnelName]
+		localAddr := fmt.Sprintf("127.0.0.1:%d", tunnelCfg.LocalPort)
+		conn, err := net.DialTimeout("tcp", localAddr, 2*time.Second)
+		if err == nil {
+			conn.Close()
+			continue
+		}
 
-	return fmt.Errorf(
-		"%s: %s\n\n"+
-			"请先确认本地代理客户端已启动，并且 HTTP 或 mixed 代理端口是 %d。\n"+
-			"常见检查:\n"+
-			"  1. Clash/Mihomo/Surge/V2Ray 是否正在运行\n"+
-			"  2. 配置里的 local_port 是否写对\n"+
-			"  3. 本机是否允许连接 127.0.0.1:%d\n\n"+
-			"原始错误: %v",
-		console.ForStderr().Error("本地代理端口不可连接"),
-		console.ForStderr().Accent(localAddr),
-		cfg.Tunnel.LocalPort,
-		cfg.Tunnel.LocalPort,
-		err,
-	)
+		return fmt.Errorf(
+			"%s: %s (%s)\n\n"+
+				"请先确认本地代理客户端已启动，并且 HTTP 或 mixed 代理端口是 %d。\n"+
+				"常见检查:\n"+
+				"  1. Clash/Mihomo/Surge/V2Ray 是否正在运行\n"+
+				"  2. 配置里的 local_port 是否写对\n"+
+				"  3. 本机是否允许连接 127.0.0.1:%d\n\n"+
+				"原始错误: %v",
+			console.ForStderr().Error("本地代理端口不可连接"),
+			console.ForStderr().Accent(localAddr),
+			tunnelName,
+			tunnelCfg.LocalPort,
+			tunnelCfg.LocalPort,
+			err,
+		)
+	}
+	return nil
 }
 
 func explainStartError(err error, cfg *config.RuntimeConfig) error {
@@ -180,17 +189,14 @@ func explainStartError(err error, cfg *config.RuntimeConfig) error {
 	if errors.Is(err, tunnel.ErrRemoteListenFailed) {
 		return fmt.Errorf(
 			"%w\n\n"+
-				"%s %s 监听失败，隧道没有建立成功。\n"+
+				"%s 监听失败，隧道没有建立成功。\n"+
 				"建议按顺序检查:\n"+
 				"  1. 先运行 `localtun setup`，确保远端开启 AllowTcpForwarding 和 GatewayPorts\n"+
-				"  2. 登录远端执行 `ss -lntp | grep :%d`，确认端口没有被占用\n"+
-				"  3. 如果云厂商有安全组/防火墙，请放行 TCP :%d\n"+
+				"  2. 登录远端执行 `ss -lntp`，确认 remote_port 没有被占用\n"+
+				"  3. 如果云厂商有安全组/防火墙，请放行对应 remote_port\n"+
 				"  4. 如果刚改过 sshd_config，请重启 sshd 或重新连接后再试",
 			err,
 			ui.Error("远程端口"),
-			ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.RemotePort)),
-			cfg.Tunnel.RemotePort,
-			cfg.Tunnel.RemotePort,
 		)
 	}
 

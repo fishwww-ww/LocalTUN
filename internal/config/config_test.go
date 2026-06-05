@@ -52,15 +52,25 @@ servers:
     port: 22
     user: root
     key_path: ~/.ssh/id_rsa
-    remote_port: 1080
-    local_port: 7897
+    tunnels:
+      proxy:
+        remote_bind: 0.0.0.0
+        remote_port: 1080
+        local_port: 7897
+      dashboard:
+        remote_bind: 127.0.0.1
+        remote_port: 9090
+        local_port: 9090
   east:
     host: example.com
     port: 2222
     user: ubuntu
     key_path: ~/.ssh/id_ed25519
-    remote_port: 1080
-    local_port: 7897
+    tunnels:
+      proxy:
+        remote_bind: 0.0.0.0
+        remote_port: 1080
+        local_port: 7897
 keepalive:
   interval: 30
   max_count: 3
@@ -96,6 +106,34 @@ keepalive:
 	}
 }
 
+func TestLoadAppliesProfileAndTunnelDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	writeConfig(t, path, `
+servers:
+  west:
+    host: 1.2.3.4
+    key_path: ~/.ssh/id_rsa
+    tunnels:
+      proxy: {}
+keepalive:
+  interval: 30
+  max_count: 3
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	profile := cfg.Servers["west"]
+	if profile.User != "root" || profile.Port != 22 {
+		t.Fatalf("profile defaults = user %q port %d, want root:22", profile.User, profile.Port)
+	}
+	tunnel := profile.Tunnels["proxy"]
+	if tunnel.RemoteBind != "0.0.0.0" || tunnel.RemotePort != 1080 || tunnel.LocalPort != 7897 {
+		t.Fatalf("tunnel defaults = %+v, want 0.0.0.0:1080 -> 7897", tunnel)
+	}
+}
+
 func TestValidateRejectsEmptyServers(t *testing.T) {
 	cfg := DefaultConfig()
 	if err := cfg.Validate(); err == nil {
@@ -127,15 +165,17 @@ func TestValidateRejectsInvalidProfile(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid remote port",
+			name: "missing tunnels",
 			mutate: func(profile *ServerProfile) {
-				profile.RemotePort = 70000
+				profile.Tunnels = nil
 			},
 		},
 		{
-			name: "invalid local port",
+			name: "invalid tunnel",
 			mutate: func(profile *ServerProfile) {
-				profile.LocalPort = -1
+				tunnel := profile.Tunnels["proxy"]
+				tunnel.RemotePort = 70000
+				profile.Tunnels["proxy"] = tunnel
 			},
 		},
 	}
@@ -163,6 +203,7 @@ func validProfile() ServerProfile {
 	profile := DefaultServerProfile()
 	profile.Host = "example.com"
 	profile.KeyPath = "~/.ssh/id_rsa"
+	profile.Tunnels["proxy"] = DefaultTunnelConfig()
 	return profile
 }
 

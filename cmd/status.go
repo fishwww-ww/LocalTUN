@@ -78,6 +78,9 @@ func printConfig(profile selectedProfile) {
 	ui := console.ForStdout()
 	cfg := profile.Runtime
 	fmt.Printf("  %s     %s@%s:%s\n", ui.Label("SSH:"), ui.Info(cfg.Server.User), ui.Accent(cfg.Server.Host), ui.Accent(fmt.Sprint(cfg.Server.Port)))
-	fmt.Printf("  %s   远程 %s → 本地 %s\n", ui.Label("隧道:"), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.LocalPort)))
+	for _, tunnelName := range sortedTunnelNames(cfg.Tunnels) {
+		tunnelCfg := cfg.Tunnels[tunnelName]
+		fmt.Printf("  %s   %s 远程 %s:%s → 本地 %s\n", ui.Label("隧道:"), ui.Info(tunnelName), ui.Accent(tunnelCfg.RemoteBind), ui.Accent(fmt.Sprint(tunnelCfg.RemotePort)), ui.Accent(fmt.Sprintf(":%d", tunnelCfg.LocalPort)))
+	}
 	fmt.Printf("  %s  每 %s，最大失败 %s 次\n", ui.Label("Keepalive:"), ui.Accent(fmt.Sprintf("%ds", cfg.Keepalive.Interval)), ui.Accent(fmt.Sprint(cfg.Keepalive.MaxCount)))
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -128,11 +129,49 @@ func promptServerProfile(reader *bufio.Reader, _ *config.Config) config.ServerPr
 		host = prompt(reader, "服务器 IP", "")
 	}
 
-	return config.ServerProfile{
-		Host:       host,
-		User:       prompt(reader, "SSH 用户名", def.User),
-		Port:       promptInt(reader, "SSH 端口", def.Port),
-		KeyPath:    prompt(reader, "SSH 密钥路径", "~/.ssh/id_rsa"),
+	profile := config.ServerProfile{
+		Host:    host,
+		User:    prompt(reader, "SSH 用户名", def.User),
+		Port:    promptInt(reader, "SSH 端口", def.Port),
+		KeyPath: prompt(reader, "SSH 密钥路径", "~/.ssh/id_rsa"),
+		Tunnels: map[string]config.TunnelConfig{},
+	}
+	for {
+		tunnelName := promptTunnelName(reader, profile)
+		profile.Tunnels[tunnelName] = promptTunnelConfig(reader)
+		fmt.Println()
+		if !confirm("是否继续添加下一条隧道?") {
+			break
+		}
+		fmt.Println()
+	}
+	return profile
+}
+
+func promptTunnelName(reader *bufio.Reader, profile config.ServerProfile) string {
+	ui := console.ForStdout()
+	defaultName := "proxy"
+	if len(profile.Tunnels) > 0 {
+		defaultName = ""
+	}
+	for {
+		name := prompt(reader, "隧道名称", defaultName)
+		if err := validateProfileName(name); err != nil {
+			fmt.Printf("  %s %s\n", ui.WarningMark(), ui.Warning(err.Error()))
+			continue
+		}
+		if _, exists := profile.Tunnels[name]; exists {
+			fmt.Printf("  %s %s\n", ui.WarningMark(), ui.Warning("隧道名称已存在，请换一个名称"))
+			continue
+		}
+		return name
+	}
+}
+
+func promptTunnelConfig(reader *bufio.Reader) config.TunnelConfig {
+	def := config.DefaultTunnelConfig()
+	return config.TunnelConfig{
+		RemoteBind: prompt(reader, "远端监听地址", def.RemoteBind),
 		RemotePort: promptInt(reader, "远程代理端口", def.RemotePort),
 		LocalPort:  promptInt(reader, "本地代理端口", def.LocalPort),
 	}
@@ -146,7 +185,10 @@ func printInitSummary(cfg *config.Config, cfgPath string) {
 		profile := cfg.Servers[name]
 		fmt.Printf("  %s   %s\n", ui.Label("名称:"), ui.Info(name))
 		fmt.Printf("    %s     %s@%s:%s\n", ui.Label("SSH:"), ui.Info(profile.User), ui.Accent(profile.Host), ui.Accent(strconv.Itoa(profile.Port)))
-		fmt.Printf("    %s   远程 %s → 本地 %s\n", ui.Label("隧道:"), ui.Accent(fmt.Sprintf(":%d", profile.RemotePort)), ui.Accent(fmt.Sprintf(":%d", profile.LocalPort)))
+		for _, tunnelName := range sortedTunnelNames(profile.Tunnels) {
+			tunnel := profile.Tunnels[tunnelName]
+			fmt.Printf("    %s   %s 远程 %s:%s → 本地 %s\n", ui.Label("隧道:"), ui.Info(tunnelName), ui.Accent(tunnel.RemoteBind), ui.Accent(fmt.Sprint(tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", tunnel.LocalPort)))
+		}
 		fmt.Printf("    %s   %s\n", ui.Label("SSH 密钥:"), ui.Accent(profile.KeyPath))
 		printProfilePreflight(profile)
 	}
@@ -166,20 +208,32 @@ func printProfilePreflight(profile config.ServerProfile) {
 		fmt.Printf("      %s SSH 密钥存在: %s\n", ui.SuccessMark(), ui.Accent(keyPath))
 	}
 
-	if profile.Port == profile.RemotePort {
-		fmt.Printf("      %s %s (%s)\n", ui.WarningMark(), ui.Warning("远程代理端口与 SSH 端口相同"), ui.Accent(fmt.Sprintf(":%d", profile.RemotePort)))
-		fmt.Printf("        %s 建议为远程代理端口换一个未占用端口，例如 %s。\n", ui.Warning("提示:"), ui.Accent("1080"))
-	} else {
-		fmt.Printf("      %s 远程代理端口看起来可用: %s\n", ui.SuccessMark(), ui.Accent(fmt.Sprintf(":%d", profile.RemotePort)))
-	}
+	for _, tunnelName := range sortedTunnelNames(profile.Tunnels) {
+		tunnel := profile.Tunnels[tunnelName]
+		if profile.Port == tunnel.RemotePort {
+			fmt.Printf("      %s %s %s (%s)\n", ui.WarningMark(), ui.Warning("远程代理端口与 SSH 端口相同"), ui.Info(tunnelName), ui.Accent(fmt.Sprintf(":%d", tunnel.RemotePort)))
+			fmt.Printf("        %s 建议为远程代理端口换一个未占用端口，例如 %s。\n", ui.Warning("提示:"), ui.Accent("1080"))
+		} else {
+			fmt.Printf("      %s %s 远程代理端口看起来可用: %s\n", ui.SuccessMark(), ui.Info(tunnelName), ui.Accent(fmt.Sprintf("%s:%d", tunnel.RemoteBind, tunnel.RemotePort)))
+		}
 
-	localAddr := fmt.Sprintf("127.0.0.1:%d", profile.LocalPort)
-	conn, err := net.DialTimeout("tcp", localAddr, 800*time.Millisecond)
-	if err != nil {
-		fmt.Printf("      %s %s: %s\n", ui.WarningMark(), ui.Warning("本地代理端口暂时无法连接"), ui.Accent(localAddr))
-		fmt.Printf("        %s 启动隧道前请先启动 Clash、Mihomo、Surge、V2Ray 等本地代理。\n", ui.Warning("提示:"))
-		return
+		localAddr := fmt.Sprintf("127.0.0.1:%d", tunnel.LocalPort)
+		conn, err := net.DialTimeout("tcp", localAddr, 800*time.Millisecond)
+		if err != nil {
+			fmt.Printf("      %s %s %s: %s\n", ui.WarningMark(), ui.Info(tunnelName), ui.Warning("本地代理端口暂时无法连接"), ui.Accent(localAddr))
+			fmt.Printf("        %s 启动隧道前请先启动 Clash、Mihomo、Surge、V2Ray 等本地代理。\n", ui.Warning("提示:"))
+			continue
+		}
+		conn.Close()
+		fmt.Printf("      %s %s 本地代理端口可连接: %s\n", ui.SuccessMark(), ui.Info(tunnelName), ui.Accent(localAddr))
 	}
-	conn.Close()
-	fmt.Printf("      %s 本地代理端口可连接: %s\n", ui.SuccessMark(), ui.Accent(localAddr))
+}
+
+func sortedTunnelNames(tunnels map[string]config.TunnelConfig) []string {
+	names := make([]string, 0, len(tunnels))
+	for name := range tunnels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

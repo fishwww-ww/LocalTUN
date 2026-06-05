@@ -55,9 +55,11 @@ func testProfilesConfig() *config.Config {
 	west := config.DefaultServerProfile()
 	west.Host = "west.example.com"
 	west.KeyPath = "~/.ssh/id_rsa"
+	west.Tunnels["proxy"] = config.DefaultTunnelConfig()
 	east := config.DefaultServerProfile()
 	east.Host = "east.example.com"
 	east.KeyPath = "~/.ssh/id_rsa"
+	east.Tunnels["proxy"] = config.DefaultTunnelConfig()
 	cfg.Servers["west"] = west
 	cfg.Servers["east"] = east
 	return cfg

@@ -18,11 +18,11 @@ import (
 var ErrRemoteListenFailed = errors.New("remote listen failed")
 
 type Tunnel struct {
-	cfg      *config.RuntimeConfig
-	logger   *log.Logger
-	client   *ssh.Client
-	listener net.Listener
-	mu       sync.Mutex
+	cfg       *config.RuntimeConfig
+	logger    *log.Logger
+	client    *ssh.Client
+	listeners []net.Listener
+	mu        sync.Mutex
 }
 
 func New(cfg *config.RuntimeConfig, logger *log.Logger) *Tunnel {
@@ -81,49 +81,77 @@ func (t *Tunnel) setupKeepalive(ctx context.Context) {
 }
 
 func (t *Tunnel) startForwarding(ctx context.Context) error {
-	listenAddr := fmt.Sprintf("0.0.0.0:%d", t.cfg.Tunnel.RemotePort)
-
 	t.mu.Lock()
 	client := t.client
 	t.mu.Unlock()
 
-	listener, err := client.Listen("tcp", listenAddr)
-	if err != nil {
-		return fmt.Errorf("%w: 远程端口 %d 监听失败: %v", ErrRemoteListenFailed, t.cfg.Tunnel.RemotePort, err)
+	errCh := make(chan error, len(t.cfg.Tunnels))
+	var wg sync.WaitGroup
+
+	for name, tunnelCfg := range t.cfg.Tunnels {
+		name := name
+		tunnelCfg := tunnelCfg
+		listenAddr := fmt.Sprintf("%s:%d", tunnelCfg.RemoteBind, tunnelCfg.RemotePort)
+
+		listener, err := client.Listen("tcp", listenAddr)
+		if err != nil {
+			t.Close()
+			return fmt.Errorf("%w: 隧道 %s 远程 %s 监听失败: %v", ErrRemoteListenFailed, name, listenAddr, err)
+		}
+
+		t.mu.Lock()
+		t.listeners = append(t.listeners, listener)
+		t.mu.Unlock()
+
+		t.logger.Printf("隧道已建立 [%s]: 远程 %s → 本地 :%d", name, listenAddr, tunnelCfg.LocalPort)
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			t.acceptLoop(ctx, name, tunnelCfg, listener, errCh)
+		}()
 	}
-
-	t.mu.Lock()
-	t.listener = listener
-	t.mu.Unlock()
-
-	t.logger.Printf("隧道已建立: 远程 :%d → 本地 :%d", t.cfg.Tunnel.RemotePort, t.cfg.Tunnel.LocalPort)
 
 	go func() {
 		<-ctx.Done()
-		listener.Close()
+		t.Close()
 	}()
 
+	wg.Wait()
+	close(errCh)
+
+	for err := range errCh {
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *Tunnel) acceptLoop(ctx context.Context, name string, tunnelCfg config.TunnelConfig, listener net.Listener, errCh chan<- error) {
 	for {
 		remote, err := listener.Accept()
 		if err != nil {
 			select {
 			case <-ctx.Done():
-				return nil
+				return
 			default:
-				return fmt.Errorf("接受连接失败: %w", err)
+				t.Close()
+				errCh <- fmt.Errorf("隧道 %s 接受连接失败: %w", name, err)
+				return
 			}
 		}
-		go t.handleConnection(remote)
+		go t.handleConnection(name, tunnelCfg, remote)
 	}
 }
 
-func (t *Tunnel) handleConnection(remote net.Conn) {
+func (t *Tunnel) handleConnection(name string, tunnelCfg config.TunnelConfig, remote net.Conn) {
 	defer remote.Close()
 
-	localAddr := fmt.Sprintf("127.0.0.1:%d", t.cfg.Tunnel.LocalPort)
+	localAddr := fmt.Sprintf("127.0.0.1:%d", tunnelCfg.LocalPort)
 	local, err := net.DialTimeout("tcp", localAddr, 5*time.Second)
 	if err != nil {
-		t.logger.Printf("连接本地端口 %d 失败: %v", t.cfg.Tunnel.LocalPort, err)
+		t.logger.Printf("隧道 %s 连接本地端口 %d 失败: %v", name, tunnelCfg.LocalPort, err)
 		return
 	}
 	defer local.Close()
@@ -161,10 +189,10 @@ func (t *Tunnel) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	if t.listener != nil {
-		t.listener.Close()
-		t.listener = nil
+	for _, listener := range t.listeners {
+		listener.Close()
 	}
+	t.listeners = nil
 	if t.client != nil {
 		t.client.Close()
 		t.client = nil

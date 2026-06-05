@@ -52,7 +52,10 @@ func runServerList(cmd *cobra.Command, args []string) error {
 		profile := cfg.Servers[name]
 		fmt.Printf("%s %s\n", ui.Label("服务器:"), ui.Info(name))
 		fmt.Printf("  %s     %s@%s:%s\n", ui.Label("SSH:"), ui.Info(profile.User), ui.Accent(profile.Host), ui.Accent(fmt.Sprint(profile.Port)))
-		fmt.Printf("  %s   远程 %s → 本地 %s\n", ui.Label("隧道:"), ui.Accent(fmt.Sprintf(":%d", profile.RemotePort)), ui.Accent(fmt.Sprintf(":%d", profile.LocalPort)))
+		for _, tunnelName := range sortedTunnelNames(profile.Tunnels) {
+			tunnelCfg := profile.Tunnels[tunnelName]
+			fmt.Printf("  %s   %s 远程 %s:%s → 本地 %s\n", ui.Label("隧道:"), ui.Info(tunnelName), ui.Accent(tunnelCfg.RemoteBind), ui.Accent(fmt.Sprint(tunnelCfg.RemotePort)), ui.Accent(fmt.Sprintf(":%d", tunnelCfg.LocalPort)))
+		}
 	}
 	return nil
 }
