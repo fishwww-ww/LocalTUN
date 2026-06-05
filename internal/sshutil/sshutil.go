@@ -9,7 +9,7 @@ import (
 	"localtun/internal/config"
 )
 
-func BuildClientConfig(cfg *config.Config) (*ssh.ClientConfig, error) {
+func BuildClientConfig(cfg *config.RuntimeConfig) (*ssh.ClientConfig, error) {
 	keyPath, err := cfg.ExpandKeyPath()
 	if err != nil {
 		return nil, err
@@ -33,7 +33,7 @@ func BuildClientConfig(cfg *config.Config) (*ssh.ClientConfig, error) {
 	}, nil
 }
 
-func Dial(cfg *config.Config) (*ssh.Client, error) {
+func Dial(cfg *config.RuntimeConfig) (*ssh.Client, error) {
 	sshCfg, err := BuildClientConfig(cfg)
 	if err != nil {
 		return nil, err

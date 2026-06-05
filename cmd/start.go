@@ -8,7 +8,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 
@@ -31,6 +31,7 @@ func init() {
 	startCmd.Flags().BoolVarP(&daemonFlag, "daemon", "d", false, "后台运行")
 	startCmd.Flags().Bool("foreground", false, "前台运行 (内部使用)")
 	startCmd.Flags().MarkHidden("foreground")
+	startCmd.Flags().StringArrayVarP(&selectedServers, "server", "s", nil, "只处理指定服务器，可重复传入")
 	rootCmd.AddCommand(startCmd)
 }
 
@@ -40,37 +41,76 @@ func runStart(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	profiles, err := selectProfiles(cfg, selectedServers)
+	if err != nil {
+		return err
+	}
+
 	dataDir, err := config.DataDir()
 	if err != nil {
 		return fmt.Errorf("创建数据目录失败: %w", err)
 	}
 
-	pidFile := filepath.Join(dataDir, "localtun.pid")
 	foreground, _ := cmd.Flags().GetBool("foreground")
 
-	if !foreground && isRunning(pidFile) {
-		return fmt.Errorf("隧道已在运行中 (PID 文件: %s)，请先运行 `localtun stop`", pidFile)
+	for _, profile := range profiles {
+		pidFile := profilePIDFile(dataDir, profile.Name)
+		if !foreground && isRunning(pidFile) {
+			return fmt.Errorf("服务器 %s 的隧道已在运行中 (PID 文件: %s)，请先运行 `localtun stop --server %s`", profile.Name, pidFile, profile.Name)
+		}
 	}
 
-	if err := checkLocalProxyPort(cfg); err != nil {
-		return err
+	for _, profile := range profiles {
+		if err := checkLocalProxyPort(profile.Runtime); err != nil {
+			return fmt.Errorf("[%s] %w", profile.Name, err)
+		}
 	}
 
 	if daemonFlag && !foreground {
-		return daemonize(pidFile)
+		return daemonizeProfiles(profiles)
 	}
 
-	if !daemonFlag {
-		if err := writePIDInfo(pidFile, os.Getpid()); err != nil {
-			return fmt.Errorf("写入 PID 文件失败: %w", err)
+	if !daemonFlag || foreground {
+		if err := os.MkdirAll(profileRunDir(dataDir), 0755); err != nil {
+			return fmt.Errorf("创建 PID 目录失败: %w", err)
 		}
-		defer removePIDInfo(pidFile, os.Getpid())
+	}
+
+	if foreground {
+		name, ok := foregroundServerName(cmd)
+		if !ok {
+			return fmt.Errorf("后台内部启动缺少 --server")
+		}
+		profiles, err = selectProfiles(cfg, []string{name})
+		if err != nil {
+			return err
+		}
+	}
+
+	if !daemonFlag || foreground {
+		for _, profile := range profiles {
+			pidFile := profilePIDFile(dataDir, profile.Name)
+			if err := writePIDInfo(pidFile, os.Getpid()); err != nil {
+				return fmt.Errorf("写入 PID 文件失败: %w", err)
+			}
+		}
+		defer func() {
+			for _, profile := range profiles {
+				removePIDInfo(profilePIDFile(dataDir, profile.Name), os.Getpid())
+			}
+		}()
 	}
 
 	logFile := os.Stdout
 	if daemonFlag {
+		if len(profiles) != 1 {
+			return fmt.Errorf("后台内部启动一次只能处理一个服务器")
+		}
+		if err := os.MkdirAll(profileLogDir(dataDir), 0755); err != nil {
+			return fmt.Errorf("创建日志目录失败: %w", err)
+		}
 		lf, err := os.OpenFile(
-			filepath.Join(dataDir, "localtun.log"),
+			profileLogFile(dataDir, profiles[0].Name),
 			os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644,
 		)
 		if err != nil {
@@ -88,7 +128,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	if !daemonFlag {
 		ui := console.ForStdout()
-		fmt.Printf("%s %s:%s → 本地 %s\n", ui.Label("隧道配置:"), ui.Accent(cfg.Server.Host), ui.Accent(fmt.Sprint(cfg.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.LocalPort)))
+		fmt.Println(ui.Label("隧道配置:"))
+		for _, profile := range profiles {
+			fmt.Printf("  %s %s:%s → 本地 %s\n", ui.Info(profile.Name), ui.Accent(profile.Runtime.Server.Host), ui.Accent(fmt.Sprint(profile.Runtime.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", profile.Runtime.Tunnel.LocalPort)))
+		}
 		fmt.Println(ui.Muted("按 Ctrl+C 停止隧道"))
 		fmt.Println()
 	}
@@ -105,14 +148,10 @@ func runStart(cmd *cobra.Command, args []string) error {
 		cancel()
 	}()
 
-	t := tunnel.New(cfg, logger)
-	if err := t.Run(ctx); err != nil {
-		return explainStartError(err, cfg)
-	}
-	return nil
+	return runProfiles(ctx, profiles, logger)
 }
 
-func checkLocalProxyPort(cfg *config.Config) error {
+func checkLocalProxyPort(cfg *config.RuntimeConfig) error {
 	localAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Tunnel.LocalPort)
 	conn, err := net.DialTimeout("tcp", localAddr, 2*time.Second)
 	if err == nil {
@@ -125,7 +164,7 @@ func checkLocalProxyPort(cfg *config.Config) error {
 			"请先确认本地代理客户端已启动，并且 HTTP 或 mixed 代理端口是 %d。\n"+
 			"常见检查:\n"+
 			"  1. Clash/Mihomo/Surge/V2Ray 是否正在运行\n"+
-			"  2. 配置里的 tunnel.local_port 是否写对\n"+
+			"  2. 配置里的 local_port 是否写对\n"+
 			"  3. 本机是否允许连接 127.0.0.1:%d\n\n"+
 			"原始错误: %v",
 		console.ForStderr().Error("本地代理端口不可连接"),
@@ -136,7 +175,7 @@ func checkLocalProxyPort(cfg *config.Config) error {
 	)
 }
 
-func explainStartError(err error, cfg *config.Config) error {
+func explainStartError(err error, cfg *config.RuntimeConfig) error {
 	ui := console.ForStderr()
 	if errors.Is(err, tunnel.ErrRemoteListenFailed) {
 		return fmt.Errorf(
@@ -171,19 +210,80 @@ func explainStartError(err error, cfg *config.Config) error {
 	)
 }
 
-func daemonize(pidFile string) error {
+func runProfiles(ctx context.Context, profiles []selectedProfile, logger *log.Logger) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	errCh := make(chan error, len(profiles))
+	var wg sync.WaitGroup
+
+	for _, profile := range profiles {
+		profile := profile
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			profileLogger := logger
+			if len(profiles) > 1 {
+				profileLogger = log.New(logger.Writer(), fmt.Sprintf("[%s] ", profile.Name), logger.Flags())
+			}
+			t := tunnel.New(profile.Runtime, profileLogger)
+			if err := t.Run(runCtx); err != nil {
+				errCh <- fmt.Errorf("[%s] %w", profile.Name, explainStartError(err, profile.Runtime))
+				cancel()
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errCh)
+
+	var errs []error
+	for err := range errCh {
+		errs = append(errs, err)
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+func foregroundServerName(cmd *cobra.Command) (string, bool) {
+	values, err := cmd.Flags().GetStringArray("server")
+	if err != nil || len(values) != 1 {
+		return "", false
+	}
+	return values[0], true
+}
+
+func daemonizeProfiles(profiles []selectedProfile) error {
+	for _, profile := range profiles {
+		if err := daemonize(profile.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func daemonize(serverName string) error {
 	exe, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("获取可执行文件路径失败: %w", err)
 	}
 
-	args := []string{exe, "start", "--daemon", "--foreground"}
+	args := []string{exe, "start", "--daemon", "--foreground", "--server", serverName}
 	if cfgFile != "" {
 		args = append(args, "--config", cfgFile)
 	}
 
 	dataDir, _ := config.DataDir()
-	logPath := filepath.Join(dataDir, "localtun.log")
+	if err := os.MkdirAll(profileRunDir(dataDir), 0755); err != nil {
+		return fmt.Errorf("创建 PID 目录失败: %w", err)
+	}
+	if err := os.MkdirAll(profileLogDir(dataDir), 0755); err != nil {
+		return fmt.Errorf("创建日志目录失败: %w", err)
+	}
+	pidFile := profilePIDFile(dataDir, serverName)
+	logPath := profileLogFile(dataDir, serverName)
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("打开日志文件失败: %w", err)
@@ -210,8 +310,8 @@ func daemonize(pidFile string) error {
 	proc.Release()
 
 	ui := console.ForStdout()
-	fmt.Printf("%s 隧道已在后台启动 (PID: %s)\n", ui.SuccessMark(), ui.Accent(fmt.Sprint(proc.Pid)))
+	fmt.Printf("%s %s 隧道已在后台启动 (PID: %s)\n", ui.SuccessMark(), ui.Info(serverName), ui.Accent(fmt.Sprint(proc.Pid)))
 	fmt.Printf("%s %s\n", ui.Label("日志文件:"), ui.Accent(logPath))
-	fmt.Printf("%s %s\n", ui.Label("停止隧道:"), ui.Info("localtun stop"))
+	fmt.Printf("%s %s\n", ui.Label("停止隧道:"), ui.Info(fmt.Sprintf("localtun stop --server %s", serverName)))
 	return nil
 }

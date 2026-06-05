@@ -21,27 +21,28 @@ type TunnelConfig struct {
 	LocalPort  int `yaml:"local_port"`
 }
 
+type ServerProfile struct {
+	Host       string `yaml:"host"`
+	Port       int    `yaml:"port"`
+	User       string `yaml:"user"`
+	KeyPath    string `yaml:"key_path"`
+	RemotePort int    `yaml:"remote_port"`
+	LocalPort  int    `yaml:"local_port"`
+}
+
 type KeepaliveConfig struct {
 	Interval int `yaml:"interval"`
 	MaxCount int `yaml:"max_count"`
 }
 
 type Config struct {
-	Server    ServerConfig    `yaml:"server"`
-	Tunnel    TunnelConfig    `yaml:"tunnel"`
-	Keepalive KeepaliveConfig `yaml:"keepalive"`
+	Servers   map[string]ServerProfile `yaml:"servers"`
+	Keepalive KeepaliveConfig          `yaml:"keepalive"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
-		Server: ServerConfig{
-			Port: 22,
-			User: "root",
-		},
-		Tunnel: TunnelConfig{
-			RemotePort: 1080,
-			LocalPort:  7897,
-		},
+		Servers: map[string]ServerProfile{},
 		Keepalive: KeepaliveConfig{
 			Interval: 30,
 			MaxCount: 3,
@@ -105,23 +106,16 @@ func (c *Config) Save(path string) error {
 }
 
 func (c *Config) Validate() error {
-	if c.Server.Host == "" {
-		return fmt.Errorf("server.host 不能为空")
+	if len(c.Servers) == 0 {
+		return fmt.Errorf("servers 不能为空")
 	}
-	if c.Server.Port <= 0 || c.Server.Port > 65535 {
-		return fmt.Errorf("server.port 必须在 1-65535 之间")
-	}
-	if c.Server.User == "" {
-		return fmt.Errorf("server.user 不能为空")
-	}
-	if c.Server.KeyPath == "" {
-		return fmt.Errorf("server.key_path 不能为空")
-	}
-	if c.Tunnel.RemotePort <= 0 || c.Tunnel.RemotePort > 65535 {
-		return fmt.Errorf("tunnel.remote_port 必须在 1-65535 之间")
-	}
-	if c.Tunnel.LocalPort <= 0 || c.Tunnel.LocalPort > 65535 {
-		return fmt.Errorf("tunnel.local_port 必须在 1-65535 之间")
+	for name, profile := range c.Servers {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("servers 中存在空服务器名称")
+		}
+		if err := validateProfile(name, profile); err != nil {
+			return err
+		}
 	}
 	if c.Keepalive.Interval <= 0 {
 		return fmt.Errorf("keepalive.interval 必须大于 0")
@@ -132,9 +126,67 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+func validateProfile(name string, profile ServerProfile) error {
+	prefix := fmt.Sprintf("servers.%s", name)
+	if profile.Host == "" {
+		return fmt.Errorf("%s.host 不能为空", prefix)
+	}
+	if profile.Port <= 0 || profile.Port > 65535 {
+		return fmt.Errorf("%s.port 必须在 1-65535 之间", prefix)
+	}
+	if profile.User == "" {
+		return fmt.Errorf("%s.user 不能为空", prefix)
+	}
+	if profile.KeyPath == "" {
+		return fmt.Errorf("%s.key_path 不能为空", prefix)
+	}
+	if profile.RemotePort <= 0 || profile.RemotePort > 65535 {
+		return fmt.Errorf("%s.remote_port 必须在 1-65535 之间", prefix)
+	}
+	if profile.LocalPort <= 0 || profile.LocalPort > 65535 {
+		return fmt.Errorf("%s.local_port 必须在 1-65535 之间", prefix)
+	}
+	return nil
+}
+
+func DefaultServerProfile() ServerProfile {
+	return ServerProfile{
+		Port:       22,
+		User:       "root",
+		RemotePort: 1080,
+		LocalPort:  7897,
+	}
+}
+
+func (p ServerProfile) ToRuntimeConfig(keepalive KeepaliveConfig) *RuntimeConfig {
+	return &RuntimeConfig{
+		Server: ServerConfig{
+			Host:    p.Host,
+			Port:    p.Port,
+			User:    p.User,
+			KeyPath: p.KeyPath,
+		},
+		Tunnel: TunnelConfig{
+			RemotePort: p.RemotePort,
+			LocalPort:  p.LocalPort,
+		},
+		Keepalive: keepalive,
+	}
+}
+
+type RuntimeConfig struct {
+	Server    ServerConfig
+	Tunnel    TunnelConfig
+	Keepalive KeepaliveConfig
+}
+
 // ExpandKeyPath resolves ~ to home directory in the key path.
-func (c *Config) ExpandKeyPath() (string, error) {
+func (c *RuntimeConfig) ExpandKeyPath() (string, error) {
 	return expandHome(c.Server.KeyPath)
+}
+
+func (p ServerProfile) ExpandKeyPath() (string, error) {
+	return expandHome(p.KeyPath)
 }
 
 func expandHome(p string) (string, error) {

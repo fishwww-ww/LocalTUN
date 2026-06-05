@@ -79,6 +79,7 @@ localtun init
 
 程序会交互式提示你输入：
 
+- 一个或多个服务器名称
 - 服务器 IP 或域名
 - SSH 用户名
 - SSH 端口
@@ -126,6 +127,12 @@ source ~/.bashrc
 localtun start
 ```
 
+默认会启动所有已配置服务器。只启动某一台：
+
+```bash
+localtun start --server west
+```
+
 后台运行：
 
 ```bash
@@ -134,8 +141,8 @@ localtun start -d
 
 运行时文件：
 
-- `~/.localtun/localtun.pid`：前台和后台模式都会使用，用于防止重复启动隧道进程。
-- `~/.localtun/localtun.log`：后台模式使用的日志文件。
+- `~/.localtun/run/<server>.pid`：按服务器隔离 PID 文件，防止重复启动。
+- `~/.localtun/logs/<server>.log`：后台模式按服务器隔离日志文件。
 
 ### 4. 查看状态
 
@@ -180,15 +187,21 @@ localtun stop
 默认配置文件 `~/.localtun/config.yaml` 示例：
 
 ```yaml
-server:
-  host: 1.2.3.4
-  port: 22
-  user: root
-  key_path: ~/.ssh/id_rsa
-
-tunnel:
-  remote_port: 1080
-  local_port: 7897
+servers:
+  west:
+    host: 1.2.3.4
+    port: 22
+    user: root
+    key_path: ~/.ssh/id_rsa
+    remote_port: 1080
+    local_port: 7897
+  east:
+    host: example.com
+    port: 22
+    user: ubuntu
+    key_path: ~/.ssh/id_ed25519
+    remote_port: 1080
+    local_port: 7897
 
 keepalive:
   interval: 30
@@ -199,12 +212,12 @@ keepalive:
 
 | 配置项 | 说明 |
 |------|------|
-| `server.host` | 远程服务器 IP 或域名 |
-| `server.port` | SSH 端口，默认 `22` |
-| `server.user` | SSH 登录用户名，默认 `root` |
-| `server.key_path` | SSH 私钥路径，支持 `~/` |
-| `tunnel.remote_port` | 远端暴露的代理端口，默认 `1080` |
-| `tunnel.local_port` | 本地代理端口，默认 `7897` |
+| `servers.<name>.host` | 远程服务器 IP 或域名 |
+| `servers.<name>.port` | SSH 端口，默认 `22` |
+| `servers.<name>.user` | SSH 登录用户名，默认 `root` |
+| `servers.<name>.key_path` | SSH 私钥路径，支持 `~/` |
+| `servers.<name>.remote_port` | 远端暴露的代理端口，默认 `1080` |
+| `servers.<name>.local_port` | 本地代理端口，默认 `7897` |
 | `keepalive.interval` | keepalive 间隔秒数，默认 `30` |
 | `keepalive.max_count` | keepalive 最大失败次数，默认 `3` |
 
@@ -212,11 +225,19 @@ keepalive:
 
 ### `localtun init`
 
-交互式生成配置文件。如果目标文件已存在，会先询问是否覆盖。
+交互式生成多服务器配置文件。如果目标文件已存在，会先询问是否覆盖。
+
+### `localtun server`
+
+管理服务器配置：
+
+- `localtun server list`：列出已配置服务器
+- `localtun server add [name]`：添加或覆盖服务器配置
+- `localtun server remove [name]`：删除服务器配置
 
 ### `localtun setup`
 
-自动配置远程服务器，并在真正修改前逐步确认。
+自动配置选中的远程服务器，并在真正修改前逐步确认。
 
 它会处理：
 
@@ -231,20 +252,22 @@ keepalive:
 默认行为：
 
 - 前台运行
+- 未指定 `--server` 时启动全部服务器
 - 按 `Ctrl+C` 优雅退出
 - 断线后自动重连
 
 支持参数：
 
 - `-d`, `--daemon`：后台运行
+- `-s`, `--server`：只处理指定服务器，可重复传入
 
 ### `localtun status`
 
-查看当前隧道状态，并输出 PID、配置摘要和日志路径。
+按服务器查看当前隧道状态，并输出 PID、配置摘要和日志路径。
 
 ### `localtun stop`
 
-停止后台运行的隧道进程，并清理 PID 文件。
+停止选中的后台隧道进程，并清理 PID 文件。
 
 ### `localtun test`
 
@@ -262,6 +285,7 @@ keepalive:
 
 ```bash
 localtun --config /path/to/config.yaml start -d
+localtun start --server west --server east
 ```
 
 ## `setup` 会修改什么
@@ -323,8 +347,8 @@ curl --proxy http://127.0.0.1:1080 -I -s https://www.google.com
 | 路径 | 说明 |
 |------|------|
 | `~/.localtun/config.yaml` | 主配置文件 |
-| `~/.localtun/localtun.pid` | 用于防止重复启动隧道进程的 PID 文件 |
-| `~/.localtun/localtun.log` | 后台模式运行日志 |
+| `~/.localtun/run/<server>.pid` | 按服务器隔离的 PID 文件，用于防止重复启动 |
+| `~/.localtun/logs/<server>.log` | 后台模式按服务器隔离的运行日志 |
 
 ## 故障排查
 
@@ -381,7 +405,7 @@ localtun test
 查看日志：
 
 ```bash
-cat ~/.localtun/localtun.log
+cat ~/.localtun/logs/west.log
 ```
 
 通常可以从日志中看到：

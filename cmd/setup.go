@@ -21,6 +21,7 @@ var setupCmd = &cobra.Command{
 }
 
 func init() {
+	setupCmd.Flags().StringArrayVarP(&selectedServers, "server", "s", nil, "只处理指定服务器，可重复传入")
 	rootCmd.AddCommand(setupCmd)
 }
 
@@ -38,19 +39,34 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	profiles, err := selectProfiles(cfg, selectedServers)
+	if err != nil {
+		return err
+	}
 
 	ui := console.ForStdout()
 	logger := log.New(os.Stdout, ui.Prefix("setup"), log.LstdFlags)
 
-	s := remote.NewSetup(cfg, logger)
+	for _, profile := range profiles {
+		if err := runSetupProfile(profile, ui, logger); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func runSetupProfile(profile selectedProfile, ui console.Styler, logger *log.Logger) error {
+	s := remote.NewSetup(profile.Runtime, logger)
 	if err := s.Connect(); err != nil {
-		return err
+		return fmt.Errorf("[%s] %w", profile.Name, err)
 	}
 	defer s.Close()
 
 	fmt.Println()
-	fmt.Printf("%s %s@%s:%s\n", ui.Label("目标服务器:"), ui.Info(cfg.Server.User), ui.Accent(cfg.Server.Host), ui.Accent(fmt.Sprint(cfg.Server.Port)))
-	fmt.Printf("%s   远程 %s → 本地 %s\n", ui.Label("隧道端口:"), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.LocalPort)))
+	fmt.Printf("%s %s\n", ui.Label("服务器名称:"), ui.Info(profile.Name))
+	fmt.Printf("%s %s@%s:%s\n", ui.Label("目标服务器:"), ui.Info(profile.Runtime.Server.User), ui.Accent(profile.Runtime.Server.Host), ui.Accent(fmt.Sprint(profile.Runtime.Server.Port)))
+	fmt.Printf("%s   远程 %s → 本地 %s\n", ui.Label("隧道端口:"), ui.Accent(fmt.Sprintf(":%d", profile.Runtime.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", profile.Runtime.Tunnel.LocalPort)))
 	fmt.Println()
 
 	if confirm("是否配置 sshd_config (AllowTcpForwarding, GatewayPorts, PermitTunnel)?") {
@@ -79,8 +95,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println()
-	fmt.Printf("%s 远程服务器配置完成!\n", ui.SuccessMark())
-	fmt.Printf("%s 使用 %s 启动隧道后，在服务器上运行 %s 或重新登录以激活代理配置。\n", ui.Warning("提示:"), ui.Info("`localtun start`"), ui.Info("`source ~/.bashrc`"))
+	fmt.Printf("%s %s 远程服务器配置完成!\n", ui.SuccessMark(), ui.Info(profile.Name))
+	fmt.Printf("%s 使用 %s 启动隧道后，在服务器上运行 %s 或重新登录以激活代理配置。\n", ui.Warning("提示:"), ui.Info(fmt.Sprintf("`localtun start --server %s`", profile.Name)), ui.Info("`source ~/.bashrc`"))
 
 	return nil
 }

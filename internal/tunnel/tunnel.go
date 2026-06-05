@@ -18,14 +18,14 @@ import (
 var ErrRemoteListenFailed = errors.New("remote listen failed")
 
 type Tunnel struct {
-	cfg      *config.Config
+	cfg      *config.RuntimeConfig
 	logger   *log.Logger
 	client   *ssh.Client
 	listener net.Listener
 	mu       sync.Mutex
 }
 
-func New(cfg *config.Config, logger *log.Logger) *Tunnel {
+func New(cfg *config.RuntimeConfig, logger *log.Logger) *Tunnel {
 	return &Tunnel{cfg: cfg, logger: logger}
 }
 

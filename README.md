@@ -79,6 +79,7 @@ localtun init
 
 You will be prompted for:
 
+- One or more server names
 - Server IP or hostname
 - SSH username
 - SSH port
@@ -126,6 +127,12 @@ Foreground mode:
 localtun start
 ```
 
+By default, this starts tunnels for all configured servers. To start only one server:
+
+```bash
+localtun start --server west
+```
+
 Daemon mode:
 
 ```bash
@@ -134,8 +141,8 @@ localtun start -d
 
 Runtime files:
 
-- `~/.localtun/localtun.pid` prevents duplicate tunnel processes in both foreground and daemon modes.
-- `~/.localtun/localtun.log` is used in daemon mode.
+- `~/.localtun/run/<server>.pid` prevents duplicate tunnel processes per server.
+- `~/.localtun/logs/<server>.log` is used in daemon mode.
 
 ### 4. Check status
 
@@ -180,15 +187,21 @@ localtun stop
 The default config file is `~/.localtun/config.yaml`:
 
 ```yaml
-server:
-  host: 1.2.3.4
-  port: 22
-  user: root
-  key_path: ~/.ssh/id_rsa
-
-tunnel:
-  remote_port: 1080
-  local_port: 7897
+servers:
+  west:
+    host: 1.2.3.4
+    port: 22
+    user: root
+    key_path: ~/.ssh/id_rsa
+    remote_port: 1080
+    local_port: 7897
+  east:
+    host: example.com
+    port: 22
+    user: ubuntu
+    key_path: ~/.ssh/id_ed25519
+    remote_port: 1080
+    local_port: 7897
 
 keepalive:
   interval: 30
@@ -199,12 +212,12 @@ Field reference:
 
 | Field | Description |
 |------|------|
-| `server.host` | Remote server IP or hostname |
-| `server.port` | SSH port, default `22` |
-| `server.user` | SSH login user, default `root` |
-| `server.key_path` | SSH private key path, supports `~/` |
-| `tunnel.remote_port` | Proxy port exposed on the remote server, default `1080` |
-| `tunnel.local_port` | Local proxy port, default `7897` |
+| `servers.<name>.host` | Remote server IP or hostname |
+| `servers.<name>.port` | SSH port, default `22` |
+| `servers.<name>.user` | SSH login user, default `root` |
+| `servers.<name>.key_path` | SSH private key path, supports `~/` |
+| `servers.<name>.remote_port` | Proxy port exposed on the remote server, default `1080` |
+| `servers.<name>.local_port` | Local proxy port, default `7897` |
 | `keepalive.interval` | Keepalive interval in seconds, default `30` |
 | `keepalive.max_count` | Max keepalive failures before reconnect, default `3` |
 
@@ -212,11 +225,19 @@ Field reference:
 
 ### `localtun init`
 
-Interactively generate the config file. If the target file already exists, the command asks before overwriting it.
+Interactively generate a multi-server config file. If the target file already exists, the command asks before overwriting it.
+
+### `localtun server`
+
+Manage server profiles:
+
+- `localtun server list`: list configured servers
+- `localtun server add [name]`: add or replace a server profile
+- `localtun server remove [name]`: remove a server profile
 
 ### `localtun setup`
 
-Configure the remote server with confirmation prompts before applying changes.
+Configure selected remote servers with confirmation prompts before applying changes.
 
 It handles:
 
@@ -231,20 +252,22 @@ Start the SSH reverse tunnel and forward the remote port to your local proxy por
 Default behavior:
 
 - runs in the foreground
+- starts all configured servers unless `--server` is provided
 - exits gracefully on `Ctrl+C`
 - reconnects automatically when the connection drops
 
 Flags:
 
 - `-d`, `--daemon`: run in the background
+- `-s`, `--server`: only process the named server; can be passed multiple times
 
 ### `localtun status`
 
-Show current tunnel status, PID, config summary, and log path.
+Show tunnel status, PID, config summary, and log path for each selected server.
 
 ### `localtun stop`
 
-Stop the background tunnel process and remove the PID file.
+Stop selected background tunnel processes and remove PID files.
 
 ### `localtun test`
 
@@ -262,6 +285,7 @@ Example:
 
 ```bash
 localtun --config /path/to/config.yaml start -d
+localtun start --server west --server east
 ```
 
 ## What `setup` Changes on the Remote Server
@@ -323,8 +347,8 @@ curl --proxy http://127.0.0.1:1080 -I -s https://www.google.com
 | Path | Description |
 |------|------|
 | `~/.localtun/config.yaml` | Main config file |
-| `~/.localtun/localtun.pid` | PID file used to prevent duplicate tunnel processes |
-| `~/.localtun/localtun.log` | Runtime log file used in daemon mode |
+| `~/.localtun/run/<server>.pid` | PID file used to prevent duplicate tunnel processes per server |
+| `~/.localtun/logs/<server>.log` | Runtime log file used in daemon mode |
 
 ## Troubleshooting
 
@@ -381,7 +405,7 @@ localtun test
 Inspect the log:
 
 ```bash
-cat ~/.localtun/localtun.log
+cat ~/.localtun/logs/west.log
 ```
 
 You will usually see whether:

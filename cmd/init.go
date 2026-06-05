@@ -73,25 +73,16 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Println(ui.Label("=== LocalTUN 配置初始化 ==="))
 	fmt.Println()
 
-	host := prompt(reader, "服务器 IP", "")
-	for host == "" {
-		fmt.Printf("  %s %s\n", ui.WarningMark(), ui.Warning("服务器 IP 不能为空"))
-		host = prompt(reader, "服务器 IP", "")
-	}
-
-	user := prompt(reader, "SSH 用户名", defaults.Server.User)
-	sshPort := promptInt(reader, "SSH 端口", defaults.Server.Port)
-	keyPath := prompt(reader, "SSH 密钥路径", "~/.ssh/id_rsa")
-	remotePort := promptInt(reader, "远程代理端口", defaults.Tunnel.RemotePort)
-	localPort := promptInt(reader, "本地代理端口", defaults.Tunnel.LocalPort)
-
 	cfg := config.DefaultConfig()
-	cfg.Server.Host = host
-	cfg.Server.User = user
-	cfg.Server.Port = sshPort
-	cfg.Server.KeyPath = keyPath
-	cfg.Tunnel.RemotePort = remotePort
-	cfg.Tunnel.LocalPort = localPort
+	for {
+		name := promptServerName(reader, cfg)
+		cfg.Servers[name] = promptServerProfile(reader, defaults)
+		fmt.Println()
+		if !confirm("是否继续添加下一台服务器?") {
+			break
+		}
+		fmt.Println()
+	}
 
 	fmt.Println()
 	printInitSummary(cfg, cfgPath)
@@ -111,40 +102,84 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+func promptServerName(reader *bufio.Reader, cfg *config.Config) string {
+	ui := console.ForStdout()
+	for {
+		name := prompt(reader, "服务器名称", "")
+		if err := validateProfileName(name); err != nil {
+			fmt.Printf("  %s %s\n", ui.WarningMark(), ui.Warning(err.Error()))
+			continue
+		}
+		if _, exists := cfg.Servers[name]; exists {
+			fmt.Printf("  %s %s\n", ui.WarningMark(), ui.Warning("服务器名称已存在，请换一个名称"))
+			continue
+		}
+		return name
+	}
+}
+
+func promptServerProfile(reader *bufio.Reader, _ *config.Config) config.ServerProfile {
+	ui := console.ForStdout()
+	def := config.DefaultServerProfile()
+
+	host := prompt(reader, "服务器 IP", "")
+	for host == "" {
+		fmt.Printf("  %s %s\n", ui.WarningMark(), ui.Warning("服务器 IP 不能为空"))
+		host = prompt(reader, "服务器 IP", "")
+	}
+
+	return config.ServerProfile{
+		Host:       host,
+		User:       prompt(reader, "SSH 用户名", def.User),
+		Port:       promptInt(reader, "SSH 端口", def.Port),
+		KeyPath:    prompt(reader, "SSH 密钥路径", "~/.ssh/id_rsa"),
+		RemotePort: promptInt(reader, "远程代理端口", def.RemotePort),
+		LocalPort:  promptInt(reader, "本地代理端口", def.LocalPort),
+	}
+}
+
 func printInitSummary(cfg *config.Config, cfgPath string) {
 	ui := console.ForStdout()
 	fmt.Println(ui.Label("配置摘要:"))
 	fmt.Printf("  %s   %s\n", ui.Label("配置文件:"), ui.Accent(cfgPath))
-	fmt.Printf("  %s     %s@%s:%s\n", ui.Label("服务器:"), ui.Info(cfg.Server.User), ui.Accent(cfg.Server.Host), ui.Accent(strconv.Itoa(cfg.Server.Port)))
-	fmt.Printf("  %s       远程 %s → 本地 %s\n", ui.Label("隧道:"), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.RemotePort)), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.LocalPort)))
-	fmt.Printf("  %s   %s\n", ui.Label("SSH 密钥:"), ui.Accent(cfg.Server.KeyPath))
-	fmt.Println()
-	fmt.Println(ui.Label("预检结果:"))
+	for _, name := range sortedProfileNames(cfg) {
+		profile := cfg.Servers[name]
+		fmt.Printf("  %s   %s\n", ui.Label("名称:"), ui.Info(name))
+		fmt.Printf("    %s     %s@%s:%s\n", ui.Label("SSH:"), ui.Info(profile.User), ui.Accent(profile.Host), ui.Accent(strconv.Itoa(profile.Port)))
+		fmt.Printf("    %s   远程 %s → 本地 %s\n", ui.Label("隧道:"), ui.Accent(fmt.Sprintf(":%d", profile.RemotePort)), ui.Accent(fmt.Sprintf(":%d", profile.LocalPort)))
+		fmt.Printf("    %s   %s\n", ui.Label("SSH 密钥:"), ui.Accent(profile.KeyPath))
+		printProfilePreflight(profile)
+	}
+}
 
-	keyPath, err := cfg.ExpandKeyPath()
+func printProfilePreflight(profile config.ServerProfile) {
+	ui := console.ForStdout()
+	fmt.Printf("    %s\n", ui.Label("预检结果:"))
+
+	keyPath, err := profile.ExpandKeyPath()
 	if err != nil {
-		fmt.Printf("  %s %s: %v\n", ui.WarningMark(), ui.Warning("SSH 密钥路径无法展开"), err)
+		fmt.Printf("      %s %s: %v\n", ui.WarningMark(), ui.Warning("SSH 密钥路径无法展开"), err)
 	} else if _, err := os.Stat(keyPath); err != nil {
-		fmt.Printf("  %s %s: %s\n", ui.WarningMark(), ui.Warning("SSH 密钥未找到"), ui.Accent(keyPath))
-		fmt.Printf("    %s 请确认路径正确，或稍后手动编辑配置文件。\n", ui.Warning("提示:"))
+		fmt.Printf("      %s %s: %s\n", ui.WarningMark(), ui.Warning("SSH 密钥未找到"), ui.Accent(keyPath))
+		fmt.Printf("        %s 请确认路径正确，或稍后手动编辑配置文件。\n", ui.Warning("提示:"))
 	} else {
-		fmt.Printf("  %s SSH 密钥存在: %s\n", ui.SuccessMark(), ui.Accent(keyPath))
+		fmt.Printf("      %s SSH 密钥存在: %s\n", ui.SuccessMark(), ui.Accent(keyPath))
 	}
 
-	if cfg.Server.Port == cfg.Tunnel.RemotePort {
-		fmt.Printf("  %s %s (%s)\n", ui.WarningMark(), ui.Warning("远程代理端口与 SSH 端口相同"), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.RemotePort)))
-		fmt.Printf("    %s 建议为远程代理端口换一个未占用端口，例如 %s。\n", ui.Warning("提示:"), ui.Accent("1080"))
+	if profile.Port == profile.RemotePort {
+		fmt.Printf("      %s %s (%s)\n", ui.WarningMark(), ui.Warning("远程代理端口与 SSH 端口相同"), ui.Accent(fmt.Sprintf(":%d", profile.RemotePort)))
+		fmt.Printf("        %s 建议为远程代理端口换一个未占用端口，例如 %s。\n", ui.Warning("提示:"), ui.Accent("1080"))
 	} else {
-		fmt.Printf("  %s 远程代理端口看起来可用: %s\n", ui.SuccessMark(), ui.Accent(fmt.Sprintf(":%d", cfg.Tunnel.RemotePort)))
+		fmt.Printf("      %s 远程代理端口看起来可用: %s\n", ui.SuccessMark(), ui.Accent(fmt.Sprintf(":%d", profile.RemotePort)))
 	}
 
-	localAddr := fmt.Sprintf("127.0.0.1:%d", cfg.Tunnel.LocalPort)
+	localAddr := fmt.Sprintf("127.0.0.1:%d", profile.LocalPort)
 	conn, err := net.DialTimeout("tcp", localAddr, 800*time.Millisecond)
 	if err != nil {
-		fmt.Printf("  %s %s: %s\n", ui.WarningMark(), ui.Warning("本地代理端口暂时无法连接"), ui.Accent(localAddr))
-		fmt.Printf("    %s 启动隧道前请先启动 Clash、Mihomo、Surge、V2Ray 等本地代理。\n", ui.Warning("提示:"))
+		fmt.Printf("      %s %s: %s\n", ui.WarningMark(), ui.Warning("本地代理端口暂时无法连接"), ui.Accent(localAddr))
+		fmt.Printf("        %s 启动隧道前请先启动 Clash、Mihomo、Surge、V2Ray 等本地代理。\n", ui.Warning("提示:"))
 		return
 	}
 	conn.Close()
-	fmt.Printf("  %s 本地代理端口可连接: %s\n", ui.SuccessMark(), ui.Accent(localAddr))
+	fmt.Printf("      %s 本地代理端口可连接: %s\n", ui.SuccessMark(), ui.Accent(localAddr))
 }

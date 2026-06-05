@@ -13,7 +13,7 @@ import (
 )
 
 type Setup struct {
-	cfg    *config.Config
+	cfg    *config.RuntimeConfig
 	client *ssh.Client
 	logger *log.Logger
 }
@@ -25,7 +25,7 @@ type DiagnosticResult struct {
 	Hint   string
 }
 
-func NewSetup(cfg *config.Config, logger *log.Logger) *Setup {
+func NewSetup(cfg *config.RuntimeConfig, logger *log.Logger) *Setup {
 	return &Setup{cfg: cfg, logger: logger}
 }
 

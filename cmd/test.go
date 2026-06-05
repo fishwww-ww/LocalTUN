@@ -19,6 +19,7 @@ var testCmd = &cobra.Command{
 }
 
 func init() {
+	testCmd.Flags().StringArrayVarP(&selectedServers, "server", "s", nil, "只处理指定服务器，可重复传入")
 	rootCmd.AddCommand(testCmd)
 }
 
@@ -27,18 +28,41 @@ func runTest(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	profiles, err := selectProfiles(cfg, selectedServers)
+	if err != nil {
+		return err
+	}
 
 	ui := console.ForStdout()
 	logger := log.New(os.Stdout, ui.Prefix("test"), log.LstdFlags)
 
-	s := remote.NewSetup(cfg, logger)
+	allOK := true
+	for _, profile := range profiles {
+		ok, err := runTestProfile(profile, ui, logger)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			allOK = false
+		}
+	}
+
+	if !allOK {
+		return fmt.Errorf("%s", console.ForStderr().Error("代理连通性测试未通过"))
+	}
+	return nil
+}
+
+func runTestProfile(profile selectedProfile, ui console.Styler, logger *log.Logger) (bool, error) {
+	s := remote.NewSetup(profile.Runtime, logger)
 	if err := s.Connect(); err != nil {
-		return err
+		return false, fmt.Errorf("[%s] %w", profile.Name, err)
 	}
 	defer s.Close()
 
 	fmt.Println()
-	fmt.Printf("%s 远程 %s:%s\n", ui.Label("测试代理:"), ui.Accent(cfg.Server.Host), ui.Accent(fmt.Sprint(cfg.Tunnel.RemotePort)))
+	fmt.Printf("%s %s\n", ui.Label("服务器名称:"), ui.Info(profile.Name))
+	fmt.Printf("%s 远程 %s:%s\n", ui.Label("测试代理:"), ui.Accent(profile.Runtime.Server.Host), ui.Accent(fmt.Sprint(profile.Runtime.Tunnel.RemotePort)))
 	fmt.Println()
 
 	results := s.RunDiagnostics()
@@ -57,8 +81,5 @@ func runTest(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if !allOK {
-		return fmt.Errorf("%s", console.ForStderr().Error("代理连通性测试未通过"))
-	}
-	return nil
+	return allOK, nil
 }
