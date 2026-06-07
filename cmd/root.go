@@ -8,14 +8,13 @@ import (
 	"localtun/internal/console"
 )
 
-var cfgFile string
-
 var rootCmd = &cobra.Command{
 	Use:   "localtun",
-	Short: "SSH 反向隧道与代理转发管理工具",
-	Long: `LocalTUN — 通过 SSH 反向隧道将云服务器流量转发到本地代理。
+	Short: "Internet-enabled SSH sessions",
+	Long: `LocalTUN Next — enter an SSH session that already has Internet access.
 
-支持自动配置远程服务器、启动/停止隧道、测试代理连通性。`,
+LocalTUN creates a temporary SSH reverse tunnel to your local proxy and injects
+proxy environment variables only into the current remote shell session.`,
 }
 
 func Execute() {
@@ -26,5 +25,5 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c", "", "配置文件路径 (默认 ~/.localtun/config.yaml)")
+	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 }

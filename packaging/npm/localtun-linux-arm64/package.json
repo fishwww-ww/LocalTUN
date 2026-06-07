@@ -1,6 +1,6 @@
 {
   "name": "@fishwww-ww/localtun-linux-arm64",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Linux arm64 binary for @fishwww-ww/localtun",
   "license": "MIT",
   "os": [
