@@ -1,7 +1,7 @@
 {
   "name": "@fishwww-ww/localtun",
-  "version": "0.1.2",
-  "description": "Forward remote proxy traffic to your local proxy over an SSH reverse tunnel",
+  "version": "0.2.0",
+  "description": "Internet-enabled SSH sessions through temporary reverse tunnels",
   "license": "MIT",
   "homepage": "https://github.com/fishwww-ww/LocalTUN#readme",
   "repository": {
@@ -28,11 +28,11 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "@fishwww-ww/localtun-darwin-arm64": "0.1.2",
-    "@fishwww-ww/localtun-darwin-x64": "0.1.2",
-    "@fishwww-ww/localtun-linux-x64": "0.1.2",
-    "@fishwww-ww/localtun-linux-arm64": "0.1.2",
-    "@fishwww-ww/localtun-win32-x64": "0.1.2"
+    "@fishwww-ww/localtun-darwin-arm64": "0.2.0",
+    "@fishwww-ww/localtun-darwin-x64": "0.2.0",
+    "@fishwww-ww/localtun-linux-x64": "0.2.0",
+    "@fishwww-ww/localtun-linux-arm64": "0.2.0",
+    "@fishwww-ww/localtun-win32-x64": "0.2.0"
   },
   "scripts": {
     "postinstall": "node install.js"

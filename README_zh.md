@@ -1,442 +1,135 @@
-# LocalTUN
+<h1 align="center">LocalTUN Next</h1>
 
-<p align="right">
-    <a href="./README.md">English</a> | <b>简体中文</b>
+<p align="center">
+    <a href="./README.md">English</a> · <b>简体中文</b>
 </p>
 
-[![GitHub last commit](https://img.shields.io/github/last-commit/fishwww-ww/LocalTUN)](https://github.com/fishwww-ww/LocalTUN/commits/main/)
-[![GitHub License](https://img.shields.io/github/license/fishwww-ww/LocalTUN)](https://github.com/fishwww-ww/LocalTUN/blob/main/LICENSE)
-[![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/fishwww-ww/LocalTUN/total)](https://github.com/fishwww-ww/LocalTUN/releases)
+<p align="center">
+    <img src="https://img.shields.io/github/go-mod/go-version/fishwww-ww/LocalTUN?style=flat-square" alt="Go version">
+    <img src="https://img.shields.io/github/license/fishwww-ww/LocalTUN?style=flat-square" alt="License">
+    <img src="https://img.shields.io/github/actions/workflow/status/fishwww-ww/LocalTUN/release.yml?branch=main&style=flat-square" alt="Release workflow status">
+    <img src="https://img.shields.io/github/v/release/fishwww-ww/LocalTUN?color=red&style=flat-square" alt="Latest release">
+    <img src="https://img.shields.io/github/downloads/fishwww-ww/LocalTUN/total?style=flat-square" alt="Total downloads">
+</p>
 
-`LocalTUN` 是一个基于 SSH 反向隧道的命令行工具，用于把云服务器的代理流量转发到本地代理端口。
+<p align="center">
+    <b>让新服务器立即可用。</b>
+</p>
 
-适合这样的场景：你的本地机器已经运行 Clash、Mihomo、Surge、V2Ray 等代理软件，希望云服务器通过本地代理访问外网，而不是在服务器上单独维护一套代理配置。
+`LocalTUN` 用来创建一个自带外网能力的 SSH Session，适合短期使用的云服务器和 GPU 服务器。
 
-## 功能特性
+你不需要在远端配置镜像源、修改 shell 配置、安装代理软件或维护订阅。只要本机代理已经可用，执行：
 
-- **交互式初始化**：通过 `localtun init` 生成配置文件。
-- **自动配置远端服务器**：通过 `localtun setup` 配置 `sshd_config` 和远端 `~/.bashrc`。
-- **SSH 反向隧道转发**：将远端端口流量转发到本地代理端口。
-- **保活与自动重连**：内置 keepalive 检测和指数退避重连机制。
-- **前后台运行**：既支持前台运行，也支持守护进程模式。
-- **连通性测试**：支持在远端直接验证完整代理链路。
-
-## 工作原理
-
-```text
-云服务器 (:1080) -> SSH 反向隧道 -> 本机 (:7897) -> 本地代理软件 -> 外网
+```bash
+localtun connect root@gpu01
 ```
 
-典型流程如下：
+LocalTUN 会建立一个临时 SSH 反向隧道，只给当前远端 shell 注入代理环境变量，并在 session 退出时自动销毁隧道。
 
-1. 在本机运行 `localtun start`。
-2. 程序建立到远端服务器的 SSH 连接。
-3. 在远端暴露一个代理端口，默认是 `1080`。
-4. 远端发往该端口的流量会被转发到本地代理端口，默认是 `7897`。
-5. 本地代理处理请求后，再通过 SSH 隧道把响应返回给远端服务器。
+## 工作方式
+
+```text
+远端 shell 环境变量
+  HTTP_PROXY=http://127.0.0.1:<临时端口>
+  HTTPS_PROXY=http://127.0.0.1:<临时端口>
+  ALL_PROXY=http://127.0.0.1:<临时端口>
+        |
+        v
+远端 127.0.0.1:<临时端口>
+        |
+        v
+SSH 反向隧道
+        |
+        v
+本机代理，例如 127.0.0.1:7897
+```
+
+LocalTUN 不会修改远端 `.bashrc`、`.zshrc`、Docker、Conda、系统代理或 SSH 配置。
+
+## 快速开始
+
+先启动本机代理客户端，然后连接服务器：
+
+```bash
+localtun connect root@gpu01
+```
+
+常用参数：
+
+```bash
+localtun connect ubuntu@gpu01:2222
+localtun connect gpu01 --identity ~/.ssh/id_ed25519
+localtun connect root@gpu01 --local-proxy 7897
+localtun connect root@gpu01 --remote-port 46327
+localtun connect root@gpu01 --shell /bin/bash
+```
+
+进入远端 shell 后，支持代理环境变量的工具可以直接访问外网：
+
+```bash
+pip install transformers
+git clone https://github.com/huggingface/transformers
+huggingface-cli download bert-base-uncased
+```
+
+正常退出 shell：
+
+```bash
+exit
+```
+
+隧道会随 SSH Session 一起关闭。
+
+## 本地代理探测
+
+未传入 `--local-proxy` 时，LocalTUN 默认扫描：
+
+```text
+7890, 7897, 1080, 20170
+```
+
+也可以通过 `--local-proxy host:port` 或 `--local-proxy port` 显式指定。
+
+## 后台模式
+
+当远端任务需要在启动 LocalTUN 的终端退出后继续下载时，使用：
+
+```bash
+localtun connect --detach root@gpu01
+```
+
+LocalTUN 会输出临时远端代理 URL 和可复制的环境变量。后台 session 元数据保存在：
+
+```text
+~/.localtun-next/sessions/
+```
+
+查看后台 session：
+
+```bash
+localtun sessions
+```
+
+停止某个 session：
+
+```bash
+localtun disconnect <session-id>
+```
 
 ## 前置条件
 
-- **本地代理已启动**：本机有可用的 HTTP 或混合代理端口，默认 `7897`。
-- **SSH 密钥可登录服务器**：当前机器可以使用私钥连接远端服务器。
-- **远端具备修改权限**：`localtun setup` 通常需要修改 `/etc/ssh/sshd_config` 并重启 SSH 服务。
-- **Go 环境可选**：仅在需要从源码编译时需要安装 Go。
+- 本机已有可用的 HTTP、SOCKS 或 mixed 代理端口。
+- 当前机器可以通过 SSH 私钥登录目标服务器。
+- 远端 SSH 服务允许 TCP forwarding。如果远端禁用转发，LocalTUN 会提示需要开启 `AllowTcpForwarding`。
 
-## 安装
-
-### Homebrew
-
-```bash
-brew tap fishwww-ww/tap
-brew install fishwww-ww/tap/localtun
-```
-
-### 从源码编译
+## 构建
 
 ```bash
 go build -o localtun .
 ```
 
-如需全局使用，可将其放入 PATH：
-
-```bash
-sudo mv localtun /usr/local/bin/
-```
-
-### 不安装直接运行
+从源码运行：
 
 ```bash
 go run . --help
 ```
-
-## 快速开始
-
-### 1. 初始化配置
-
-```bash
-localtun init
-```
-
-程序会交互式提示你输入：
-
-- 一个或多个服务器名称
-- 服务器 IP 或域名
-- SSH 用户名
-- SSH 端口
-- SSH 私钥路径
-- 一个或多个隧道名称
-- 远端监听地址
-- 远端端口
-- 本地端口
-
-默认配置文件路径为：
-
-```text
-~/.localtun/config.yaml
-```
-
-### 2. 配置远程服务器
-
-首次在目标服务器上启用时，执行：
-
-```bash
-localtun setup
-```
-
-该命令会通过 SSH 连接远端服务器，并在确认后执行以下操作：
-
-- 备份并修改 `/etc/ssh/sshd_config`
-- 启用 `AllowTcpForwarding yes`
-- 启用 `GatewayPorts yes`
-- 启用 `PermitTunnel yes`
-- 可选重启 `sshd` 或 `ssh`
-- 备份并更新远端 `~/.bashrc`
-- 添加代理环境变量和 `proxy_on`、`proxy_off`、`proxy_test` 函数
-
-配置多条隧道时，`setup` 和 `test` 会优先使用名为 `proxy` 的隧道；如果不存在，则使用按名称排序后的第一条隧道。
-
-某些托管或容器环境不允许在实例内部重启 SSH。如果重启步骤失败，可以继续配置 `.bashrc`，然后直接测试隧道是否可用。
-
-配置完成后，请在远端重新加载 shell：
-
-```bash
-source ~/.bashrc
-```
-
-### 3. 启动隧道
-
-前台运行：
-
-```bash
-localtun start
-```
-
-默认会启动所有已配置服务器。只启动某一台：
-
-```bash
-localtun start --server west
-```
-
-后台运行：
-
-```bash
-localtun start -d
-```
-
-运行时文件：
-
-- `~/.localtun/run/<server>.pid`：按服务器隔离 PID 文件，防止重复启动。
-- `~/.localtun/logs/<server>.log`：后台模式按服务器隔离日志文件。
-
-### 4. 查看状态
-
-```bash
-localtun status
-```
-
-该命令会显示：
-
-- 当前是否运行
-- 进程 PID
-- 服务器地址与用户
-- 隧道映射关系
-- keepalive 配置
-- 日志文件位置
-
-### 5. 测试连通性
-
-```bash
-localtun test
-```
-
-程序会在远端服务器上通过代理测试：
-
-- `https://www.baidu.com`
-- `https://www.google.com`
-
-这样可以快速判断：
-
-- 隧道是否已经建立
-- 本地代理是否可达
-- 远端代理环境是否按预期工作
-
-### 6. 停止隧道
-
-```bash
-localtun stop
-```
-
-## 配置说明
-
-默认配置文件 `~/.localtun/config.yaml` 示例：
-
-```yaml
-servers:
-  west:
-    host: 1.2.3.4
-    port: 22
-    user: root
-    key_path: ~/.ssh/id_rsa
-    tunnels:
-      proxy:
-        remote_bind: 0.0.0.0
-        remote_port: 1080
-        local_port: 7897
-      dashboard:
-        remote_bind: 127.0.0.1
-        remote_port: 9090
-        local_port: 9090
-  east:
-    host: example.com
-    port: 22
-    user: ubuntu
-    key_path: ~/.ssh/id_ed25519
-    tunnels:
-      proxy:
-        remote_bind: 0.0.0.0
-        remote_port: 1080
-        local_port: 7897
-
-keepalive:
-  interval: 30
-  max_count: 3
-```
-
-字段说明：
-
-| 配置项 | 说明 |
-|------|------|
-| `servers.<name>.host` | 远程服务器 IP 或域名 |
-| `servers.<name>.port` | SSH 端口，默认 `22` |
-| `servers.<name>.user` | SSH 登录用户名，默认 `root` |
-| `servers.<name>.key_path` | SSH 私钥路径，支持 `~/` |
-| `servers.<name>.tunnels.<tunnel>.remote_bind` | 远端监听地址，默认 `0.0.0.0`；只允许远端本机访问可设为 `127.0.0.1` |
-| `servers.<name>.tunnels.<tunnel>.remote_port` | 远端暴露端口，默认 `1080` |
-| `servers.<name>.tunnels.<tunnel>.local_port` | 转发到的本地端口，默认 `7897` |
-| `keepalive.interval` | keepalive 间隔秒数，默认 `30` |
-| `keepalive.max_count` | keepalive 最大失败次数，默认 `3` |
-
-## 命令说明
-
-### `localtun init`
-
-交互式生成多服务器配置文件。如果目标文件已存在，会先询问是否覆盖。
-
-### `localtun server`
-
-管理服务器配置：
-
-- `localtun server list`：列出已配置服务器
-- `localtun server add [name]`：添加或覆盖服务器配置
-- `localtun server remove [name]`：删除服务器配置
-
-### `localtun setup`
-
-自动配置选中的远程服务器，并在真正修改前逐步确认。
-
-它会处理：
-
-- `sshd_config` 中的转发相关设置
-- `~/.bashrc` 中的代理环境变量
-- `proxy_on`、`proxy_off`、`proxy_test` 辅助函数
-
-### `localtun start`
-
-启动 SSH 反向隧道，并将远端端口转发到本地代理端口。
-
-默认行为：
-
-- 前台运行
-- 未指定 `--server` 时启动全部服务器
-- 按 `Ctrl+C` 优雅退出
-- 断线后自动重连
-
-支持参数：
-
-- `-d`, `--daemon`：后台运行
-- `-s`, `--server`：只处理指定服务器，可重复传入
-
-### `localtun status`
-
-按服务器查看当前隧道状态，并输出 PID、配置摘要和日志路径。
-
-### `localtun stop`
-
-停止选中的后台隧道进程，并清理 PID 文件。
-
-### `localtun test`
-
-通过 SSH 登录远端服务器，执行基于 `curl --proxy` 的代理测试。
-
-## 全局参数
-
-所有命令都支持：
-
-| 参数 | 说明 |
-|------|------|
-| `-c`, `--config` | 自定义配置文件路径，默认 `~/.localtun/config.yaml` |
-
-示例：
-
-```bash
-localtun --config /path/to/config.yaml start -d
-localtun start --server west --server east
-```
-
-## `setup` 会修改什么
-
-### `sshd_config`
-
-会确保以下配置为 `yes`：
-
-```text
-AllowTcpForwarding yes
-GatewayPorts yes
-PermitTunnel yes
-```
-
-### `~/.bashrc`
-
-会注入一段由 `LocalTUN` 管理的代理配置，包括：
-
-- `http_proxy`
-- `https_proxy`
-- `HTTP_PROXY`
-- `HTTPS_PROXY`
-- `proxy_on`
-- `proxy_off`
-- `proxy_test`
-
-需要启用代理环境时，在远端 shell 中运行 `proxy_on`。
-
-## 常见用法
-
-### 使用默认配置启动
-
-```bash
-localtun start
-```
-
-### 后台启动并查看状态
-
-```bash
-localtun start -d
-localtun status
-```
-
-### 使用自定义配置文件
-
-```bash
-localtun -c ./config.yaml start -d
-```
-
-### 在远端手动测试代理
-
-```bash
-proxy_test
-curl --proxy http://127.0.0.1:1080 -I -s https://www.google.com
-```
-
-## 文件说明
-
-| 路径 | 说明 |
-|------|------|
-| `~/.localtun/config.yaml` | 主配置文件 |
-| `~/.localtun/run/<server>.pid` | 按服务器隔离的 PID 文件，用于防止重复启动 |
-| `~/.localtun/logs/<server>.log` | 后台模式按服务器隔离的运行日志 |
-
-## 故障排查
-
-### 1. 配置文件不存在
-
-运行：
-
-```bash
-localtun init
-```
-
-### 2. SSH 无法连接
-
-请检查：
-
-- 服务器地址和端口是否正确
-- SSH 用户名是否正确
-- 私钥路径是否正确
-- 私钥是否已在远端授权
-
-### 3. 隧道建立失败
-
-常见原因：
-
-- 远端 `1080` 端口已被占用
-- 服务器未开启 SSH 端口转发
-- 修改配置后 SSH 服务未重启
-- 防火墙或安全组阻止访问
-
-可以重新执行：
-
-```bash
-localtun setup
-```
-
-### 4. 远端代理不可用
-
-如果 `localtun test` 对外站点测试失败，常见原因包括：
-
-- 本地代理软件未启动
-- 本地代理端口填写错误
-- 本地代理不支持当前转发方式
-- SSH 隧道已断开或尚未建立
-
-建议检查：
-
-```bash
-localtun status
-localtun test
-```
-
-### 5. 后台模式无输出
-
-查看日志：
-
-```bash
-cat ~/.localtun/logs/west.log
-```
-
-通常可以从日志中看到：
-
-- SSH 是否连接成功
-- keepalive 是否持续失败
-- 本地代理端口是否不可达
-- 程序是否正在自动重连
-
-## 注意事项
-
-- 当前实现使用 SSH 私钥认证，不支持交互式密码登录。
-- 远端访问依赖 HTTP 代理环境变量，因此建议本地提供 HTTP 或混合代理端口。
-- 当前 SSH 主机密钥校验较宽松，优先保证首次使用顺畅；接入敏感服务器前请自行评估安全风险。
-- `localtun setup` 会修改远端系统文件，生产环境建议先确认备份与回滚方案。
-
-## 许可证
-
-本项目基于 MIT License 开源，详见 [`LICENSE`](./LICENSE)。

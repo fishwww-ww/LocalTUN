@@ -1,442 +1,143 @@
-# LocalTUN
+<h1 align="center">LocalTUN Next</h1>
 
-<p align="right">
-    <b>English</b> | <a href="./README_zh.md">简体中文</a>
+<p align="center">
+    <b>English</b> · <a href="./README_zh.md">简体中文</a>
 </p>
 
-[![GitHub last commit](https://img.shields.io/github/last-commit/fishwww-ww/LocalTUN)](https://github.com/fishwww-ww/LocalTUN/commits/main/)
-[![GitHub License](https://img.shields.io/github/license/fishwww-ww/LocalTUN)](https://github.com/fishwww-ww/LocalTUN/blob/main/LICENSE)
-[![GitHub Downloads (all assets, all releases)](https://img.shields.io/github/downloads/fishwww-ww/LocalTUN/total)](https://github.com/fishwww-ww/LocalTUN/releases)
+<p align="center">
+    <img src="https://img.shields.io/github/go-mod/go-version/fishwww-ww/LocalTUN?style=flat-square" alt="Go version">
+    <img src="https://img.shields.io/github/license/fishwww-ww/LocalTUN?style=flat-square" alt="License">
+    <img src="https://img.shields.io/github/actions/workflow/status/fishwww-ww/LocalTUN/release.yml?branch=main&style=flat-square" alt="Release workflow status">
+    <img src="https://img.shields.io/github/v/release/fishwww-ww/LocalTUN?color=red&style=flat-square" alt="Latest release">
+    <img src="https://img.shields.io/github/downloads/fishwww-ww/LocalTUN/total?style=flat-square" alt="Total downloads">
+</p>
 
-`LocalTUN` is a CLI tool that forwards proxy traffic from a remote server to your local proxy port over an SSH reverse tunnel.
+<p align="center">
+    <b>SSH in. Download models. Done.</b>
+</p>
 
-It is useful when your local machine already runs Clash, Mihomo, Surge, V2Ray, or another proxy client, and you want a cloud server to reuse that local proxy instead of maintaining a separate proxy stack on the server.
+`LocalTUN` creates an Internet-enabled SSH session for short-lived cloud and GPU servers.
 
-## Features
-
-- **Interactive setup**: Generate the config file with `localtun init`.
-- **Remote bootstrap**: Configure `sshd_config` and remote `~/.bashrc` with `localtun setup`.
-- **SSH reverse tunneling**: Forward a remote port to your local proxy port.
-- **Keepalive and reconnect**: Built-in keepalive checks with exponential backoff reconnect.
-- **Foreground and daemon modes**: Run directly in the terminal or in the background.
-- **Connectivity test**: Verify the full proxy path from the remote server.
-
-## How It Works
-
-```text
-Remote server (:1080) -> SSH reverse tunnel -> Local machine (:7897) -> Local proxy client -> Internet
-```
-
-Typical flow:
-
-1. Run `localtun start` on your local machine.
-2. The program establishes an SSH connection to the remote server.
-3. A remote port, `1080` by default, is exposed on the server side.
-4. Traffic sent to that remote port is forwarded to your local proxy port, `7897` by default.
-5. Your local proxy handles the outbound request and the response travels back through the SSH tunnel.
-
-## Prerequisites
-
-- **A running local proxy**: An HTTP or mixed proxy port is available on your machine, default `7897`.
-- **SSH key access**: Your machine can log in to the remote server using a private key.
-- **Remote privileges**: `localtun setup` usually requires permission to edit `/etc/ssh/sshd_config` and restart SSH.
-- **Go is optional**: Only needed if you want to build from source.
-
-## Installation
-
-### Homebrew
+Instead of configuring mirrors, editing shell profiles, or installing a proxy stack on the
+remote server, run one command from the machine where your proxy already works:
 
 ```bash
-brew tap fishwww-ww/tap
-brew install fishwww-ww/tap/localtun
+localtun connect root@gpu01
 ```
 
-### Build from source
+LocalTUN opens a temporary SSH reverse tunnel to your local proxy, injects proxy
+environment variables into the current remote shell only, and tears everything down when
+the session exits.
+
+## What It Does
+
+```text
+Remote shell env
+  HTTP_PROXY=http://127.0.0.1:<temporary-port>
+  HTTPS_PROXY=http://127.0.0.1:<temporary-port>
+  ALL_PROXY=http://127.0.0.1:<temporary-port>
+        |
+        v
+Remote 127.0.0.1:<temporary-port>
+        |
+        v
+SSH reverse tunnel
+        |
+        v
+Local proxy, for example 127.0.0.1:7897
+```
+
+LocalTUN does not modify remote `.bashrc`, `.zshrc`, Docker, Conda, system proxy settings,
+or SSH config.
+
+## Quick Start
+
+Start your local proxy client first, then connect:
+
+```bash
+localtun connect root@gpu01
+```
+
+Common options:
+
+```bash
+localtun connect ubuntu@gpu01:2222
+localtun connect gpu01 --identity ~/.ssh/id_ed25519
+localtun connect root@gpu01 --local-proxy 7897
+localtun connect root@gpu01 --remote-port 46327
+localtun connect root@gpu01 --shell /bin/bash
+```
+
+Inside the remote shell, tools that respect proxy environment variables can immediately
+use the Internet:
+
+```bash
+pip install transformers
+git clone https://github.com/huggingface/transformers
+huggingface-cli download bert-base-uncased
+```
+
+Exit the shell normally:
+
+```bash
+exit
+```
+
+The tunnel closes with the SSH session.
+
+## Local Proxy Detection
+
+When `--local-proxy` is not set, LocalTUN scans these local ports:
+
+```text
+7890, 7897, 1080, 20170
+```
+
+Use `--local-proxy host:port` or `--local-proxy port` to choose explicitly.
+
+## Detached Tunnels
+
+Use detached mode when a remote task should keep downloading after the terminal that
+started LocalTUN exits:
+
+```bash
+localtun connect --detach root@gpu01
+```
+
+LocalTUN prints the temporary remote proxy URL and export commands. Detached session
+metadata is stored under:
+
+```text
+~/.localtun-next/sessions/
+```
+
+List detached sessions:
+
+```bash
+localtun sessions
+```
+
+Stop one:
+
+```bash
+localtun disconnect <session-id>
+```
+
+## Requirements
+
+- A local HTTP, SOCKS, or mixed proxy port already running.
+- SSH key access to the target server.
+- Remote SSH server allows TCP forwarding. If forwarding is disabled, LocalTUN reports
+  that `AllowTcpForwarding` needs to be enabled.
+
+## Build
 
 ```bash
 go build -o localtun .
 ```
 
-To make it available globally:
-
-```bash
-sudo mv localtun /usr/local/bin/
-```
-
-### Run without installing
+Run from source:
 
 ```bash
 go run . --help
 ```
-
-## Quick Start
-
-### 1. Initialize configuration
-
-```bash
-localtun init
-```
-
-You will be prompted for:
-
-- One or more server names
-- Server IP or hostname
-- SSH username
-- SSH port
-- SSH private key path
-- One or more tunnel names
-- Remote listen address
-- Remote port
-- Local port
-
-The default config path is:
-
-```text
-~/.localtun/config.yaml
-```
-
-### 2. Configure the remote server
-
-For first-time setup on a target server:
-
-```bash
-localtun setup
-```
-
-This command connects to the server over SSH and, with confirmation prompts, can:
-
-- back up and modify `/etc/ssh/sshd_config`
-- enable `AllowTcpForwarding yes`
-- enable `GatewayPorts yes`
-- enable `PermitTunnel yes`
-- optionally restart `sshd` or `ssh`
-- back up and update remote `~/.bashrc`
-- add proxy environment variables and helper functions: `proxy_on`, `proxy_off`, `proxy_test`
-
-When multiple tunnels are configured, `setup` and `test` use the tunnel named `proxy`; if it does not exist, they use the first tunnel by name.
-
-Some managed or container-based providers do not allow restarting SSH from inside the instance. If the restart step fails, you can continue the `.bashrc` setup and then test the tunnel directly.
-
-After setup, reload the shell on the remote server:
-
-```bash
-source ~/.bashrc
-```
-
-### 3. Start the tunnel
-
-Foreground mode:
-
-```bash
-localtun start
-```
-
-By default, this starts tunnels for all configured servers. To start only one server:
-
-```bash
-localtun start --server west
-```
-
-Daemon mode:
-
-```bash
-localtun start -d
-```
-
-Runtime files:
-
-- `~/.localtun/run/<server>.pid` prevents duplicate tunnel processes per server.
-- `~/.localtun/logs/<server>.log` is used in daemon mode.
-
-### 4. Check status
-
-```bash
-localtun status
-```
-
-This shows:
-
-- whether the tunnel is running
-- process PID
-- server address and user
-- tunnel mapping
-- keepalive settings
-- log file path
-
-### 5. Test connectivity
-
-```bash
-localtun test
-```
-
-The command tests outbound access from the remote server through the tunnel against:
-
-- `https://www.baidu.com`
-- `https://www.google.com`
-
-This helps verify:
-
-- the tunnel is up
-- the local proxy is reachable
-- the remote proxy environment works as expected
-
-### 6. Stop the tunnel
-
-```bash
-localtun stop
-```
-
-## Configuration
-
-The default config file is `~/.localtun/config.yaml`:
-
-```yaml
-servers:
-  west:
-    host: 1.2.3.4
-    port: 22
-    user: root
-    key_path: ~/.ssh/id_rsa
-    tunnels:
-      proxy:
-        remote_bind: 0.0.0.0
-        remote_port: 1080
-        local_port: 7897
-      dashboard:
-        remote_bind: 127.0.0.1
-        remote_port: 9090
-        local_port: 9090
-  east:
-    host: example.com
-    port: 22
-    user: ubuntu
-    key_path: ~/.ssh/id_ed25519
-    tunnels:
-      proxy:
-        remote_bind: 0.0.0.0
-        remote_port: 1080
-        local_port: 7897
-
-keepalive:
-  interval: 30
-  max_count: 3
-```
-
-Field reference:
-
-| Field | Description |
-|------|------|
-| `servers.<name>.host` | Remote server IP or hostname |
-| `servers.<name>.port` | SSH port, default `22` |
-| `servers.<name>.user` | SSH login user, default `root` |
-| `servers.<name>.key_path` | SSH private key path, supports `~/` |
-| `servers.<name>.tunnels.<tunnel>.remote_bind` | Remote listen address, default `0.0.0.0`; use `127.0.0.1` for remote-only access |
-| `servers.<name>.tunnels.<tunnel>.remote_port` | Port exposed on the remote server, default `1080` |
-| `servers.<name>.tunnels.<tunnel>.local_port` | Local port forwarded to, default `7897` |
-| `keepalive.interval` | Keepalive interval in seconds, default `30` |
-| `keepalive.max_count` | Max keepalive failures before reconnect, default `3` |
-
-## Commands
-
-### `localtun init`
-
-Interactively generate a multi-server config file. If the target file already exists, the command asks before overwriting it.
-
-### `localtun server`
-
-Manage server profiles:
-
-- `localtun server list`: list configured servers
-- `localtun server add [name]`: add or replace a server profile
-- `localtun server remove [name]`: remove a server profile
-
-### `localtun setup`
-
-Configure selected remote servers with confirmation prompts before applying changes.
-
-It handles:
-
-- SSH forwarding settings in `sshd_config`
-- proxy environment variables in `~/.bashrc`
-- helper functions `proxy_on`, `proxy_off`, and `proxy_test`
-
-### `localtun start`
-
-Start the SSH reverse tunnel and forward the remote port to your local proxy port.
-
-Default behavior:
-
-- runs in the foreground
-- starts all configured servers unless `--server` is provided
-- exits gracefully on `Ctrl+C`
-- reconnects automatically when the connection drops
-
-Flags:
-
-- `-d`, `--daemon`: run in the background
-- `-s`, `--server`: only process the named server; can be passed multiple times
-
-### `localtun status`
-
-Show tunnel status, PID, config summary, and log path for each selected server.
-
-### `localtun stop`
-
-Stop selected background tunnel processes and remove PID files.
-
-### `localtun test`
-
-Connect to the remote server over SSH and run proxy tests with `curl --proxy`.
-
-## Global Flag
-
-All commands support:
-
-| Flag | Description |
-|------|------|
-| `-c`, `--config` | Custom config path, default `~/.localtun/config.yaml` |
-
-Example:
-
-```bash
-localtun --config /path/to/config.yaml start -d
-localtun start --server west --server east
-```
-
-## What `setup` Changes on the Remote Server
-
-### `sshd_config`
-
-The command ensures these options are set to `yes`:
-
-```text
-AllowTcpForwarding yes
-GatewayPorts yes
-PermitTunnel yes
-```
-
-### `~/.bashrc`
-
-It injects a `LocalTUN`-managed proxy block that includes:
-
-- `http_proxy`
-- `https_proxy`
-- `HTTP_PROXY`
-- `HTTPS_PROXY`
-- `proxy_on`
-- `proxy_off`
-- `proxy_test`
-
-Run `proxy_on` in the remote shell when you want to enable the proxy environment.
-
-## Common Usage
-
-### Start with the default config
-
-```bash
-localtun start
-```
-
-### Start in background and inspect status
-
-```bash
-localtun start -d
-localtun status
-```
-
-### Use a custom config file
-
-```bash
-localtun -c ./config.yaml start -d
-```
-
-### Test the proxy manually on the remote shell
-
-```bash
-proxy_test
-curl --proxy http://127.0.0.1:1080 -I -s https://www.google.com
-```
-
-## Files
-
-| Path | Description |
-|------|------|
-| `~/.localtun/config.yaml` | Main config file |
-| `~/.localtun/run/<server>.pid` | PID file used to prevent duplicate tunnel processes per server |
-| `~/.localtun/logs/<server>.log` | Runtime log file used in daemon mode |
-
-## Troubleshooting
-
-### 1. Config file not found
-
-Run:
-
-```bash
-localtun init
-```
-
-### 2. SSH connection fails
-
-Check:
-
-- server address and port
-- SSH username
-- private key path
-- whether the key is authorized on the server
-
-### 3. Tunnel setup fails
-
-Common causes:
-
-- remote port `1080` is already in use
-- SSH port forwarding is not enabled on the server
-- SSH service was not restarted after config changes
-- firewall or security group rules block access
-
-Try:
-
-```bash
-localtun setup
-```
-
-### 4. Remote proxy is unavailable
-
-If `localtun test` fails on external sites, the issue is usually one of:
-
-- local proxy client is not running
-- wrong local proxy port
-- local proxy does not support the forwarding mode
-- SSH tunnel is down or has not been established yet
-
-Suggested checks:
-
-```bash
-localtun status
-localtun test
-```
-
-### 5. No output in daemon mode
-
-Inspect the log:
-
-```bash
-cat ~/.localtun/logs/west.log
-```
-
-You will usually see whether:
-
-- SSH connected successfully
-- keepalive is failing repeatedly
-- the local proxy port cannot be reached
-- the program is reconnecting
-
-## Notes
-
-- The current implementation uses SSH private key authentication and does not support interactive password login.
-- The remote environment is driven by HTTP proxy environment variables, so a local HTTP or mixed proxy port is recommended.
-- SSH host key verification is permissive for a smoother first-run experience, so assess the security implications before using this against sensitive servers.
-- `localtun setup` modifies remote system files. In production environments, review backup and rollback procedures first.
-
-## License
-
-This project is licensed under the MIT License. See [`LICENSE`](./LICENSE).
