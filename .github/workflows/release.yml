@@ -42,35 +42,28 @@ jobs:
           go test ./...
           go vet ./...
 
-      - name: Compute next version
+      - name: Read release version
         id: version
         shell: bash
         run: |
           set -euo pipefail
 
-          current_commit_tag="$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
-          if [[ -n "${current_commit_tag}" ]]; then
-            next="${current_commit_tag#v}"
-          else
-            latest_tag="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
-            if [[ -z "${latest_tag}" ]]; then
-              current="$(node -p "require('./packaging/npm/localtun/package.json').version")"
-            else
-              current="${latest_tag#v}"
-            fi
-
-            IFS=. read -r major minor patch <<< "${current}"
-            next="${major}.${minor}.$((patch + 1))"
+          next="$(node -p "require('./packaging/npm/localtun/package.json').version")"
+          if [[ ! "${next}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid package version: ${next}" >&2
+            exit 1
           fi
 
-          if [[ -z "${next}" ]]; then
-            current="$(node -p "require('./packaging/npm/localtun/package.json').version")"
-            next="${current}"
+          tag="v${next}"
+          head_tag="$(git tag --points-at HEAD --list "${tag}" | head -n 1)"
+          if [[ -z "${head_tag}" ]] && git rev-parse "${tag}" >/dev/null 2>&1; then
+            echo "Tag ${tag} already exists on another commit. Bump packaging/npm/localtun/package.json before releasing." >&2
+            exit 1
           fi
 
           echo "version=${next}" >> "${GITHUB_OUTPUT}"
-          echo "tag=v${next}" >> "${GITHUB_OUTPUT}"
-          echo "Next release: v${next}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "Release: ${tag}"
 
       - name: Update npm package versions
         run: node scripts/set-npm-version.mjs "${{ steps.version.outputs.version }}"
