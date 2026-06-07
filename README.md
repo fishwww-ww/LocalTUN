@@ -1,4 +1,4 @@
-<h1 align="center">LocalTUN Next</h1>
+<h1 align="center">LocalTUN</h1>
 
 <p align="center">
     <b>English</b> · <a href="./README_zh.md">简体中文</a>
@@ -28,6 +28,14 @@ localtun connect root@gpu01
 LocalTUN opens a temporary SSH reverse tunnel to your local proxy, injects proxy
 environment variables into the current remote shell only, and tears everything down when
 the session exits.
+
+## Installation
+
+Install with npm:
+
+```bash
+npm install -g @fishwww-ww/localtun
+```
 
 ## What It Does
 

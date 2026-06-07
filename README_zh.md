@@ -1,4 +1,4 @@
-<h1 align="center">LocalTUN Next</h1>
+<h1 align="center">LocalTUN</h1>
 
 <p align="center">
     <a href="./README.md">English</a> · <b>简体中文</b>
@@ -25,6 +25,14 @@ localtun connect root@gpu01
 ```
 
 LocalTUN 会建立一个临时 SSH 反向隧道，只给当前远端 shell 注入代理环境变量，并在 session 退出时自动销毁隧道。
+
+## 安装
+
+使用 npm 安装：
+
+```bash
+npm install -g @fishwww-ww/localtun
+```
 
 ## 工作方式
 

@@ -4,6 +4,17 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - "README.md"
+      - "README_zh.md"
+      - "CHANGELOG.md"
+      - "CHANGELOG.*"
+      - "LICENSE"
+      - "LICENSE.*"
+      - "docs/**"
+      - "blog/**"
+      - "**/*.md"
+      - "**/*.mdx"
   workflow_dispatch:
 
 permissions:
