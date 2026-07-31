@@ -134,7 +134,13 @@ func runInteractive(parent context.Context, rawTarget string, tgt target.Target,
 	if shellPath == "" {
 		shellPath = "sh"
 	}
-	sessionErr := runRemoteShell(ctx, client, shellPath, proxyURL)
+	remoteLocale := detectRemoteUTF8Locale(client)
+	if remoteLocale == "" {
+		fmt.Fprintf(os.Stderr, "%s %s\n", ui.Prefix("LocalTUN"), ui.Warning("No UTF-8 locale found on the remote host; Chinese input may not work."))
+	} else {
+		fmt.Fprintf(os.Stderr, "%s %s %s\n", ui.Prefix("LocalTUN"), ui.Label("remote locale:"), ui.Accent(remoteLocale))
+	}
+	sessionErr := runRemoteShell(ctx, client, shellPath, proxyURL, remoteLocale)
 	cancel()
 	tun.Close()
 
@@ -289,7 +295,7 @@ func runDetachedWatcher(parent context.Context, rawTarget string, tgt target.Tar
 	}
 }
 
-func runRemoteShell(ctx context.Context, client *ssh.Client, shellPath, proxyURL string) error {
+func runRemoteShell(ctx context.Context, client *ssh.Client, shellPath, proxyURL, locale string) error {
 	session, err := client.NewSession()
 	if err != nil {
 		return err
@@ -307,6 +313,7 @@ func runRemoteShell(ctx context.Context, client *ssh.Client, shellPath, proxyURL
 		}
 		modes := ssh.TerminalModes{
 			ssh.ECHO:          1,
+			ssh.IUTF8:         1,
 			ssh.TTY_OP_ISPEED: 14400,
 			ssh.TTY_OP_OSPEED: 14400,
 		}
@@ -321,7 +328,7 @@ func runRemoteShell(ctx context.Context, client *ssh.Client, shellPath, proxyURL
 
 	done := make(chan error, 1)
 	go func() {
-		done <- session.Run(next.ShellCommand(shellPath, proxyURL))
+		done <- session.Run(next.ShellCommand(shellPath, proxyURL, locale))
 	}()
 	select {
 	case <-ctx.Done():
@@ -346,6 +353,19 @@ func detectRemoteShell(client *ssh.Client) string {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func detectRemoteUTF8Locale(client *ssh.Client) string {
+	session, err := client.NewSession()
+	if err != nil {
+		return ""
+	}
+	defer session.Close()
+	out, err := session.Output(`locale -a 2>/dev/null`)
+	if err != nil {
+		return ""
+	}
+	return next.SelectUTF8Locale(string(out))
 }
 
 func signalContext(parent context.Context) (context.Context, context.CancelFunc) {
