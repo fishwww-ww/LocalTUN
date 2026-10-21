@@ -16,13 +16,20 @@ func ProxyEnv(proxyURL string) map[string]string {
 	}
 }
 
-func ShellCommand(shell string, proxyURL string) string {
+func ShellCommand(shell string, proxyURL, locale string) string {
 	shell = strings.TrimSpace(shell)
 	if shell == "" {
 		shell = "sh"
 	}
 	env := ProxyEnv(proxyURL)
 	order := []string{"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"}
+	locale = strings.TrimSpace(locale)
+	if locale != "" {
+		env["LANG"] = locale
+		env["LC_CTYPE"] = locale
+		env["LC_ALL"] = locale
+		order = append(order, "LANG", "LC_CTYPE", "LC_ALL")
+	}
 	parts := []string{"env"}
 	for _, key := range order {
 		parts = append(parts, fmt.Sprintf("%s=%s", key, shQuote(env[key])))
